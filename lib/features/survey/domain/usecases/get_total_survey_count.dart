@@ -1,0 +1,15 @@
+import 'package:fpdart/fpdart.dart';
+import 'package:tisini/core/error/failures.dart';
+import 'package:tisini/core/usecase/usecase.dart';
+import 'package:tisini/features/survey/domain/repositories/survey_repository.dart';
+
+class GetTotalSurveyCount implements UseCase<int, NoParams> {
+  final SurveyRepository repository;
+
+  GetTotalSurveyCount({required this.repository});
+
+  @override
+  Future<Either<Failure, int>> call(NoParams params) async {
+    return await repository.getTotalSubmissionCount();
+  }
+}
