@@ -32,12 +32,16 @@ class AgentFixtureBinding extends Bindings {
     Get.lazyPut(() => SyncEventsUsecase(repository: Get.find()));
     // Domain layer (use case)
     Get.lazyPut(() => AgentFixtures(agentFixtureRepository: Get.find()));
+    Get.lazyPut(
+      () => DeactivateMatchUsecase(agentFixtureRepository: Get.find()),
+    );
     // Presentation layer (controller)
     Get.lazyPut(
       () => AgentFixtureController(
         agentFixtures: Get.find(),
         getSubmittedEventsUsecase: Get.find(),
         syncEventsUsecase: Get.find(),
+        deactivateMatchUsecase: Get.find(),
       ),
       fenix: true,
     );

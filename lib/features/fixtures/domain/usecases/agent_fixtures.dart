@@ -23,3 +23,22 @@ class AgentFixturesParams {
 
   AgentFixturesParams({required this.token});
 }
+
+class DeactivateMatchUsecase implements UseCase<String, DeactivateMatchParams> {
+  final AgentFixtureRepository agentFixtureRepository;
+
+  DeactivateMatchUsecase({required this.agentFixtureRepository});
+
+  @override
+  Future<Either<Failure, String>> call(DeactivateMatchParams params) async {
+    return await agentFixtureRepository.deactivateMatch(
+      matchId: params.matchId,
+    );
+  }
+}
+
+class DeactivateMatchParams {
+  final String matchId;
+
+  DeactivateMatchParams({required this.matchId});
+}

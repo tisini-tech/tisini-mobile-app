@@ -32,6 +32,24 @@ abstract final class UserSessionPrefs {
     await _box.remove(_rememberedLoginIdKey);
   }
 
+  static String? get name => _readNonEmptyString('name');
+
+  static String? get email => _readNonEmptyString('email');
+
+  static String? get phoneNumber => _readNonEmptyString('phone_number');
+
+  static String? get userId => _readNonEmptyString('id');
+
+  static String? get role => _readNonEmptyString('role');
+
+  static bool get isVerified => _box.read('is_verified') == true;
+
+  static String? _readNonEmptyString(String key) {
+    final value = _box.read(key);
+    if (value is String && value.trim().isNotEmpty) return value.trim();
+    return null;
+  }
+
   /// Profile fields used across the app (same keys as legacy [AuthController]).
   static Future<void> saveUserProfile(User user) async {
     await _box.write('token', user.accessToken);

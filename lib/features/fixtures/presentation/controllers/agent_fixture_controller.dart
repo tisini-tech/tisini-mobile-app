@@ -16,11 +16,13 @@ class AgentFixtureController extends GetxController {
   final AgentFixtures agentFixtures;
   final GetSubmittedEventsUsecase getSubmittedEventsUsecase;
   final SyncEventsUsecase syncEventsUsecase;
+  final DeactivateMatchUsecase deactivateMatchUsecase;
 
   AgentFixtureController({
     required this.agentFixtures,
     required this.getSubmittedEventsUsecase,
     required this.syncEventsUsecase,
+    required this.deactivateMatchUsecase,
   });
 
   final box = GetStorage();
@@ -35,13 +37,13 @@ class AgentFixtureController extends GetxController {
   final TextEditingController searchController = TextEditingController();
 
   /// All locally saved match events for the selected fixture.
-  final RxList<Map<String, dynamic>> localEvents =
-      RxList<Map<String, dynamic>>([]);
+  final RxList<Map<String, dynamic>> localEvents = RxList<Map<String, dynamic>>(
+    [],
+  );
 
   int get totalEvents => localEvents.length;
 
-  int get syncedEvents =>
-      localEvents.where(MatchEventSync.isSynced).length;
+  int get syncedEvents => localEvents.where(MatchEventSync.isSynced).length;
 
   int get pendingEvents =>
       localEvents.where(MatchEventSync.isPendingSync).length;
@@ -209,5 +211,30 @@ class AgentFixtureController extends GetxController {
     } finally {
       isSyncing.value = false;
     }
+  }
+
+  Future<void> deactivateMatch() async {
+    final fixtureId = selectedFixture.value?.id;
+    if (fixtureId == null) return;
+
+    final result = await deactivateMatchUsecase.call(
+      DeactivateMatchParams(matchId: fixtureId.toString()),
+    );
+
+    result.fold((failure) => showSnackbar('Error', failure.message, Colors.red), (
+      message,
+    ) {
+      fixtures.removeWhere((fixture) => fixture.id == fixtureId);
+
+      // Get.back() only dismisses a visible snackbar, so pop before showing one.
+      if (Get.currentRoute == '/fixture-options') {
+        Get.back();
+      }
+
+      selectedFixture.value = null;
+      localEvents.clear();
+
+      showSnackbar('Success', message, Colors.green);
+    });
   }
 }

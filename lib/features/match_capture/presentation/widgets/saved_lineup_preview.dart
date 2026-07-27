@@ -18,11 +18,11 @@ class SavedLineupPlayerEdit {
   final String position;
   final int jerseyNumber;
 
-  String get fullName =>
-      [firstName, lastName, surname]
-          .map((p) => p.trim())
-          .where((p) => p.isNotEmpty)
-          .join(' ');
+  String get fullName => [
+    firstName,
+    lastName,
+    surname,
+  ].map((p) => p.trim()).where((p) => p.isNotEmpty).join(' ');
 }
 
 /// Splits a full display name into first / last / surname.
@@ -462,8 +462,9 @@ class _EditPlayerDialogState extends State<_EditPlayerDialog> {
                                   )
                                 : const Text(
                                     'Save',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.w800),
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
                                   ),
                           ),
                         ),
@@ -491,11 +492,20 @@ class _SavedLineupPlayerTile extends StatelessWidget {
   final bool showPosition;
   final VoidCallback? onEdit;
 
+  String? _formattedRating() {
+    final value = player.rating?.toString().trim();
+    if (value == null || value.isEmpty) return null;
+
+    final number = double.tryParse(value);
+    return number?.toStringAsFixed(1) ?? value;
+  }
+
   @override
   Widget build(BuildContext context) {
     final jersey = player.jerseyNumber.toString().isNotEmpty
         ? player.jerseyNumber.toString()
         : '?';
+    final rating = _formattedRating();
 
     return Card(
       margin: EdgeInsets.zero,
@@ -559,6 +569,35 @@ class _SavedLineupPlayerTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (rating != null) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: TColors.secondary.withValues(alpha: 0.18),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.star_rounded,
+                      size: 16,
+                      color: TColors.warning,
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      rating,
+                      style: const TextStyle(
+                        color: TColors.textPrimary,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (onEdit != null)
               IconButton(
                 tooltip: 'Edit player',

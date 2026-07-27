@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 import 'package:google_nav_bar/google_nav_bar.dart';
-import 'package:tisini/features/fixtures/presentation/pages/agent_fixtures_screen.dart';
 import 'package:tisini/features/events/presentation/pages/events_screen.dart';
+import 'package:tisini/features/fixtures/presentation/pages/agent_fixtures_screen.dart';
+import 'package:tisini/features/profile/presentation/pages/profile_screen.dart';
 
 /// Role-based dashboard: exposes screens and tabs per user role.
 /// Uses domain [User] (not UserModel). Single source of truth per role.
@@ -53,7 +54,7 @@ class DashboardController extends GetxController {
             label: 'Wallet',
           ),
           DashboardNavItem(
-            screen: _ProfilePlaceholder(),
+            screen: ProfileScreen(),
             icon: Icons.person,
             label: 'Profile',
           ),
@@ -77,7 +78,7 @@ class DashboardController extends GetxController {
             label: 'Wallet',
           ),
           DashboardNavItem(
-            screen: _ProfilePlaceholder(),
+            screen: ProfileScreen(),
             icon: Icons.person,
             label: 'Profile',
           ),
@@ -95,7 +96,7 @@ class DashboardController extends GetxController {
             label: 'Home',
           ),
           DashboardNavItem(
-            screen: _ProfilePlaceholder(),
+            screen: ProfileScreen(),
             icon: Icons.person,
             label: 'Profile',
           ),
@@ -133,14 +134,5 @@ class _OverviewPlaceholder extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Overview')),
     body: const Center(child: Text('Overview')),
-  );
-}
-
-class _ProfilePlaceholder extends StatelessWidget {
-  const _ProfilePlaceholder();
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Profile')),
-    body: const Center(child: Text('Profile')),
   );
 }

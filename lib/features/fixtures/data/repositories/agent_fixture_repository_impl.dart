@@ -24,4 +24,19 @@ class AgentFixtureRepositoryImpl implements AgentFixtureRepository {
       return Left(Failure(e.toString()));
     }
   }
+
+  @override
+  Future<Either<Failure, String>> deactivateMatch({
+    required String matchId,
+  }) async {
+    try {
+      final result = await remoteSource.deactivateMatch(matchId: matchId);
+
+      return Right(result);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
 }

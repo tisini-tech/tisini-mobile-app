@@ -84,12 +84,9 @@ class _FixtureOptionsBody extends GetView<AgentFixtureController> {
         actions: [
           TextButton(onPressed: Get.back, child: const Text('Cancel')),
           TextButton(
-            onPressed: () {
-              Get.back();
-              Get.snackbar(
-                'Match deactivated',
-                'The match has been deactivated',
-              );
+            onPressed: () async {
+              Get.back(); // close confirmation dialog
+              await controller.deactivateMatch();
             },
             child: const Text(
               'Deactivate',
