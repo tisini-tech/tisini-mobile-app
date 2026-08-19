@@ -9,6 +9,7 @@ abstract interface class SurveyLocalDataSource {
   Future<int> getTotalSubmissionCount();
   Future<String?> getLastReferralCode();
   Future<void> saveLastReferralCode(String code);
+
   /// Mark submissions as synced by their IDs (after successful server upload).
   Future<void> markAsSynced(List<String> surveyIds);
 
@@ -17,6 +18,7 @@ abstract interface class SurveyLocalDataSource {
   Future<Map<String, dynamic>> saveEngagementResponse(
     Map<String, dynamic> response,
   );
+
   /// Number of saved engagement responses.
   Future<int> getEngagementResponseCount();
 
@@ -35,6 +37,11 @@ abstract interface class SurveyLocalDataSource {
   Future<void> saveCachedSurveys(List<SurveyModel> surveys);
 
   Future<List<SurveyModel>> getCachedSurveys();
+
+  /// Insert or replace a survey in the cache (keeps questions when present).
+  Future<void> upsertCachedSurvey(SurveyModel survey);
+
+  Future<SurveyModel?> getCachedSurveyById(String surveyId);
 }
 
 const String _surveyBoxKey = 'survey_pending_submissions';
@@ -52,8 +59,10 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
     if (raw == null) return [];
     final list = raw as List<dynamic>;
     return list
-        .map((e) =>
-            PendingSurveySubmissionModel.fromJson(e as Map<String, dynamic>))
+        .map(
+          (e) =>
+              PendingSurveySubmissionModel.fromJson(e as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -61,10 +70,7 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
   Future<void> saveSubmission(PendingSurveySubmissionModel submission) async {
     final list = await _getAllSubmissions();
     list.add(submission);
-    await _box.write(
-      _surveyBoxKey,
-      list.map((e) => e.toJson()).toList(),
-    );
+    await _box.write(_surveyBoxKey, list.map((e) => e.toJson()).toList());
   }
 
   /// Returns only submissions with synced == false (so we only send unsynced to server).
@@ -106,19 +112,14 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
         );
       }
     }
-    await _box.write(
-      _surveyBoxKey,
-      all.map((e) => e.toJson()).toList(),
-    );
+    await _box.write(_surveyBoxKey, all.map((e) => e.toJson()).toList());
   }
 
   Future<List<Map<String, dynamic>>> _getEngagementResponses() async {
     final raw = _box.read(_engagementResponsesKey);
     if (raw == null) return [];
     final list = raw as List<dynamic>;
-    return list
-        .map((e) => Map<String, dynamic>.from(e as Map))
-        .toList();
+    return list.map((e) => Map<String, dynamic>.from(e as Map)).toList();
   }
 
   @override
@@ -126,10 +127,7 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
     Map<String, dynamic> response,
   ) async {
     final saved = Map<String, dynamic>.from(response);
-    saved.putIfAbsent(
-      'saved_at',
-      () => DateTime.now().toIso8601String(),
-    );
+    saved.putIfAbsent('saved_at', () => DateTime.now().toIso8601String());
     final list = await _getEngagementResponses();
     list.add(saved);
     await _box.write(_engagementResponsesKey, list);
@@ -143,6 +141,10 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
   }
 
   static bool isSuccessfulResponse(Map<String, dynamic> record) {
+    final syncStatus = record['sync_status'];
+    if (syncStatus == 0 || syncStatus == '0') return true;
+    if (syncStatus == 1 || syncStatus == '1') return false;
+
     final status = record['status']?.toString();
     if (status == 'success') return true;
     if (status == 'failed' || status == 'pending') return false;
@@ -168,9 +170,7 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
     required String status,
   }) async {
     final list = await _getEngagementResponses();
-    final index = list.indexWhere(
-      (e) => e['local_id']?.toString() == localId,
-    );
+    final index = list.indexWhere((e) => e['local_id']?.toString() == localId);
     if (index < 0) {
       throw StateError('Engagement response not found: $localId');
     }
@@ -179,9 +179,25 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
       ...list[index],
       'status': status,
       'uploaded': status == 'success',
+      'sync_status': status == 'success' ? 0 : 1,
     };
     if (status == 'success') {
       updated['uploaded_at'] = DateTime.now().toIso8601String();
+    }
+
+    // Keep answer-level sync_status in sync with the parent record.
+    final answers = updated['answers'];
+    if (answers is List) {
+      updated['answers'] = [
+        for (final item in answers)
+          if (item is Map)
+            {
+              ...Map<String, dynamic>.from(item),
+              'sync_status': status == 'success' ? 0 : 1,
+            }
+          else
+            item,
+      ];
     }
 
     list[index] = updated;
@@ -204,10 +220,37 @@ class SurveyLocalDataSourceImpl implements SurveyLocalDataSource {
     final list = raw as List<dynamic>;
     return list
         .map(
-          (item) => SurveyModel.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          ),
+          (item) =>
+              SurveyModel.fromJson(Map<String, dynamic>.from(item as Map)),
         )
         .toList();
+  }
+
+  @override
+  Future<void> upsertCachedSurvey(SurveyModel survey) async {
+    final list = await getCachedSurveys();
+    final index = list.indexWhere((s) => s.id == survey.id);
+    if (index < 0) {
+      list.add(survey);
+    } else {
+      final existing = list[index];
+      // Prefer the copy that includes questions.
+      list[index] = survey.questions.isNotEmpty
+          ? survey
+          : (existing.questions.isNotEmpty ? existing : survey);
+    }
+    await saveCachedSurveys(list);
+  }
+
+  @override
+  Future<SurveyModel?> getCachedSurveyById(String surveyId) async {
+    final id = int.tryParse(surveyId.trim());
+    final list = await getCachedSurveys();
+    for (final survey in list) {
+      if (id != null ? survey.id == id : survey.id.toString() == surveyId) {
+        return survey;
+      }
+    }
+    return null;
   }
 }

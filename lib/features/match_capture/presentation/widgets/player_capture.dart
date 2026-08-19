@@ -3,11 +3,13 @@ import 'package:get/get.dart';
 import 'package:tisini/features/match_capture/domain/entities/formation.dart';
 import 'package:tisini/features/match_capture/domain/entities/lineup.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/events.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/formation_grid.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/subs_tile.dart';
 import 'package:tisini/features/match_capture/presentation/theme/capture_theme.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/capture_tap_shell.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/extended_team_capture.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/match_recording_guard.dart';
 
 int _formationLinearIndex(List<int> columnsPerRow, int row, int col) {
   var index = 0;
@@ -58,6 +60,7 @@ class PlayerCapture extends GetView<MatchCaptureController> {
 
     return Column(
       children: [
+        const MatchRecordingBanner(),
         // Subs section
         Card(
           child: SizedBox(
@@ -200,11 +203,12 @@ class PlayerCapture extends GetView<MatchCaptureController> {
             ? null
             : () {
                 controller.openEventsScreen(
+                  context: context,
                   isHomeTeam: isHomeTeam,
                   player: player,
                 );
               },
-        onTap: () {
+        onTap: () async {
           if (isReorder) {
             controller.onReorderPlayerTap(player, isHomeTeam: isHomeTeam);
             return;
@@ -215,22 +219,37 @@ class PlayerCapture extends GetView<MatchCaptureController> {
           final hasSubSelected = controller.selectedSubPlayer.value != null;
           if (hasSubSelected) {
             controller.setSubstitutionEvent();
-            controller.submitMetric(isHomeTeam: isHomeTeam);
-          } else {
-            controller.selectEvent(
-              controller.teamEvents.firstWhere(
-                (event) => [
-                  7,
-                  70,
-                  82,
-                  91,
-                  182,
-                  183,
-                  241,
-                ].contains(event.id),
-              ),
+            controller.submitMetric(
+              isHomeTeam: isHomeTeam,
+              context: context,
             );
-            controller.submitMetric(isHomeTeam: isHomeTeam);
+            return;
+          }
+
+          if ([
+            'rugby7',
+            'rugby10',
+            'rugby15',
+          ].contains(controller.fixture.value?.fixtureType)) {
+            controller.openEventsScreen(
+              context: context,
+              isHomeTeam: isHomeTeam,
+              player: player,
+            );
+            return;
+          } else {
+            final passEvent = controller.teamEvents.firstWhereOrNull(
+              (event) => [7, 70, 82, 91, 182, 183, 241].contains(event.id),
+            );
+            if (passEvent == null) return;
+
+            controller.selectEvent(passEvent);
+            presentMetricDetailsOrSubmit(
+              context,
+              controller: controller,
+              isHomeTeam: isHomeTeam,
+              includeSubDetailPicker: false,
+            );
           }
         },
         builder: (context, flashing) {

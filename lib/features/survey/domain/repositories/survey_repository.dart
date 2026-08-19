@@ -23,23 +23,22 @@ abstract interface class SurveyRepository {
   /// Persist referral code so it can be pre-filled next time.
   Future<Either<Failure, void>> saveLastReferralCode(String code);
 
-  /// Upload pending surveys to server.
-  Future<Either<Failure, String>> uploadPendingSurveys(
-    List<Map<String, dynamic>> payloads,
-  );
-
   Future<Either<Failure, List<Survey>>> getSurvey();
+
+  Future<Either<Failure, Survey>> getSurveyQuestions(String surveyId);
 
   Future<Either<Failure, void>> saveCachedSurveys(List<Survey> surveys);
 
   Future<Either<Failure, List<Survey>>> getCachedSurveys();
 
+  /// Merge a survey (typically with questions) into the local cache.
+  Future<Either<Failure, void>> upsertCachedSurvey(Survey survey);
+
+  Future<Either<Failure, Survey?>> getCachedSurveyById(String surveyId);
+
   Future<Either<Failure, String>> saveSurvey(
-    Map<String, dynamic> survey,
-    String code,
+    List<Map<String, dynamic>> survey,
     String surveyId,
-    String localId,
-    String savedAt,
   );
 
   /// Save engagement response locally (for count/history).

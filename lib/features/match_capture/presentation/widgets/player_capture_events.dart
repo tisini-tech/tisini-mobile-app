@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:tisini/core/widgets/snackbar/snackbar.dart';
 import 'package:tisini/features/match_capture/domain/entities/event_category.dart';
 import 'package:tisini/features/match_capture/domain/entities/metrics.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
 import 'package:tisini/features/match_capture/presentation/theme/capture_theme.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/edit_player_sheet.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/events.dart';
 
 /// Number of columns in the events grid.
@@ -124,6 +126,7 @@ class CategorizedEventsView extends GetView<MatchCaptureController> {
                 const SizedBox(height: 20),
               ],
             ],
+
             if (uncategorized.isNotEmpty) ...[
               const _SectionHeader(label: 'Other'),
               const SizedBox(height: 8),
@@ -133,6 +136,121 @@ class CategorizedEventsView extends GetView<MatchCaptureController> {
                 closeParentAfterSubmit: closeParentAfterSubmit,
               ),
             ],
+
+            const SizedBox(height: 20),
+            const _SectionHeader(label: 'Non metrics'),
+            const SizedBox(height: 8),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () async {
+                  final player = controller.playerForStatSheet;
+                  if (player == null) {
+                    showSnackbar(
+                      'Edit player',
+                      'No player selected for this sheet.',
+                      Colors.red,
+                    );
+                    return;
+                  }
+
+                  var saved = false;
+                  await showEditPlayerSheet(
+                    context,
+                    player: player,
+                    fixtureType: controller.fixture.value?.fixtureType,
+                    onSave: (edit) async {
+                      saved = await controller.updateCapturedPlayer(
+                        player,
+                        edit,
+                      );
+                    },
+                  );
+
+                  // Edit sheet only pops itself; close events after a successful save.
+                  if (saved && context.mounted) {
+                    Navigator.of(context).pop();
+                  }
+                },
+                borderRadius: BorderRadius.circular(
+                  CaptureTheme.eventBorderRadius,
+                ),
+                child: Ink(
+                  height: CaptureTheme.minTouchHeight,
+                  decoration: CaptureTheme.eventButtonDecoration(
+                    background: CaptureTheme.generalBg,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.edit_outlined,
+                        size: 18,
+                        color: CaptureTheme.generalText,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Edit Player',
+                        style: CaptureTheme.eventLabelStyle(
+                          color: CaptureTheme.generalText,
+                          compact: false,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: () async {
+                  final player = controller.playerForStatSheet;
+                  if (player == null) {
+                    showSnackbar(
+                      'Behaviour',
+                      'No player selected for this sheet.',
+                      Colors.red,
+                    );
+                    return;
+                  }
+                  controller.openBehaviourForm(
+                    context: context,
+                    isHomeTeam: controller.isHomeTeam,
+                    player: player,
+                  );
+                },
+                borderRadius: BorderRadius.circular(
+                  CaptureTheme.eventBorderRadius,
+                ),
+                child: Ink(
+                  height: CaptureTheme.minTouchHeight,
+                  decoration: CaptureTheme.eventButtonDecoration(
+                    background: CaptureTheme.disciplineBg,
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.psychology_outlined,
+                        size: 18,
+                        color: CaptureTheme.disciplineText,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Behaviour',
+                        style: CaptureTheme.eventLabelStyle(
+                          color: CaptureTheme.disciplineText,
+                          compact: false,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
           ],
         ),
       );

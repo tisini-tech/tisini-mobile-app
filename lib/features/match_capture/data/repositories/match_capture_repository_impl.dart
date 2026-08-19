@@ -3,13 +3,17 @@ import 'package:tisini/core/error/exceptions.dart';
 import 'package:tisini/core/error/failures.dart';
 import 'package:tisini/features/match_capture/data/datasources/match_capture_local_source.dart';
 import 'package:tisini/features/match_capture/data/datasources/match_capture_remote_source.dart';
+import 'package:tisini/features/match_capture/data/models/agent_arrival_model.dart';
 import 'package:tisini/features/match_capture/data/models/event_category_model.dart';
 import 'package:tisini/features/match_capture/data/models/match_event_model.dart';
 import 'package:tisini/features/match_capture/data/models/metric_model.dart';
 import 'package:tisini/features/match_capture/data/models/match_score_model.dart';
 import 'package:tisini/features/match_capture/data/models/lineup_model.dart';
 import 'package:tisini/features/match_capture/data/models/player_model.dart';
+import 'package:tisini/features/match_capture/data/models/sop_model.dart';
+import 'package:tisini/features/match_capture/domain/entities/agent_arrival.dart';
 import 'package:tisini/features/match_capture/domain/entities/new_player_input.dart';
+import 'package:tisini/features/match_capture/domain/entities/sop.dart';
 import 'package:tisini/features/match_capture/domain/match_event_sync.dart';
 import 'package:tisini/features/match_capture/domain/repositories/match_capture_repository.dart';
 
@@ -21,6 +25,100 @@ class MatchCaptureRepositoryImpl implements MatchCaptureRepository {
     required this.remoteSource,
     required this.localSource,
   });
+
+  @override
+  Future<Either<Failure, String>> uploadImage({required String path}) async {
+    try {
+      final data = await remoteSource.uploadImage(path: path);
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, SopModel>> getSop({required String fixtureId}) async {
+    try {
+      final data = await remoteSource.getSop(fixtureId: fixtureId);
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Sop>> createSop({
+    required String fixtureId,
+    required Sop sop,
+  }) async {
+    try {
+      final data = await remoteSource.createSop(
+        fixtureId: fixtureId,
+        sop: SopModel.fromEntity(sop).toCreateJson(),
+      );
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Sop>> updateSop({
+    required String fixtureId,
+    required String sopId,
+    required Sop sop,
+  }) async {
+    try {
+      final data = await remoteSource.updateSop(
+        fixtureId: fixtureId,
+        sopId: sopId,
+        sop: SopModel.fromEntity(sop).toCreateJson(),
+      );
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, AgentArrival>> getAgentArrival({
+    required String fixtureId,
+  }) async {
+    try {
+      final data = await remoteSource.getAgentArrival(fixtureId: fixtureId);
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, AgentArrival>> createAgentArrival({
+    required String fixtureId,
+    required AgentArrival arrival,
+  }) async {
+    try {
+      final data = await remoteSource.createAgentArrival(
+        fixtureId: fixtureId,
+        arrival: AgentArrivalModel.fromEntity(arrival).toCreateJson(),
+      );
+      return Right(data);
+    } on ServerException catch (e) {
+      return Left(Failure(e.message));
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
 
   @override
   Future<Either<Failure, List<MetricModel>>> getMatchMetrics({

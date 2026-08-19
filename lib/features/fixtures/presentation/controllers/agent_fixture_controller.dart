@@ -163,10 +163,17 @@ class AgentFixtureController extends GetxController {
     await loadFixtureEvents();
   }
 
-  void goToFeedbackScreen() {
+  void goToPitchArrivalScreen() {
     final fixture = selectedFixture.value;
     if (fixture != null) {
-      Get.toNamed('/feedback', arguments: {'fixture': fixture});
+      Get.toNamed('/pitch-arrival', arguments: {'fixture': fixture});
+    }
+  }
+
+  void goToSopScreen() {
+    final fixture = selectedFixture.value;
+    if (fixture != null) {
+      Get.toNamed('/sop', arguments: {'fixture': fixture});
     }
   }
 

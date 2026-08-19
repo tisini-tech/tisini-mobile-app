@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
 import 'package:tisini/features/match_capture/presentation/theme/capture_theme.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/capture_event_button.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/match_recording_guard.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/sub_events.dart';
 
 class TeamCapture extends GetView<MatchCaptureController> {
@@ -12,27 +13,34 @@ class TeamCapture extends GetView<MatchCaptureController> {
   Widget build(BuildContext context) {
     final controller = MatchCaptureController.instance;
 
-    return Container(
-      padding: const EdgeInsets.all(8),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildTeamEvents(
-              context,
-              isHomeTeam: true,
-              controller: controller,
+    return Column(
+      children: [
+        const MatchRecordingBanner(),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: _buildTeamEvents(
+                    context,
+                    isHomeTeam: true,
+                    controller: controller,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildTeamEvents(
+                    context,
+                    isHomeTeam: false,
+                    controller: controller,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildTeamEvents(
-              context,
-              isHomeTeam: false,
-              controller: controller,
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -104,7 +112,10 @@ class TeamCapture extends GetView<MatchCaptureController> {
                                 controller,
                               );
                             } else {
-                              controller.submitMetric(isHomeTeam: isHomeTeam);
+                              controller.submitMetric(
+                                isHomeTeam: isHomeTeam,
+                                context: context,
+                              );
                             }
                           },
                         );

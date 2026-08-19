@@ -4,6 +4,50 @@ import 'package:tisini/features/match_capture/presentation/controllers/match_cap
 import 'package:tisini/features/match_capture/presentation/widgets/capture_event_button.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/sub_events.dart';
 
+/// After [MatchCaptureController.selectEvent], show detail picker or submit.
+///
+/// Set [includeSubDetailPicker] to false for flows that only need [Detail]
+/// selection (e.g. pitch tap for a pass).
+void presentMetricDetailsOrSubmit(
+  BuildContext context, {
+  required MatchCaptureController controller,
+  required bool isHomeTeam,
+  bool includeSubDetailPicker = true,
+  VoidCallback? onAfterSubmit,
+}) {
+  if (controller.needsDetailPicker) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => SubEvents(
+        controller: controller,
+        isHomeTeam: isHomeTeam,
+        onAfterSubmit: onAfterSubmit,
+        includeSubDetailPicker: includeSubDetailPicker,
+      ),
+    );
+    return;
+  }
+
+  if (includeSubDetailPicker && controller.needsSubDetailPicker) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (_) => MetricSubDetails(
+        controller: controller,
+        isHomeTeam: isHomeTeam,
+        onAfterSubmit: onAfterSubmit,
+      ),
+    );
+    return;
+  }
+
+  controller.submitMetric(isHomeTeam: isHomeTeam, context: context);
+  onAfterSubmit?.call();
+}
+
 class CaptureEvents extends GetView<MatchCaptureController> {
   final int index;
   final bool isHomeTeam;
@@ -29,53 +73,15 @@ class CaptureEvents extends GetView<MatchCaptureController> {
       compact: compact,
       onTap: () {
         controller.selectEvent(event);
-        _handleMetricTap(context, controller);
+        presentMetricDetailsOrSubmit(
+          context,
+          controller: controller,
+          isHomeTeam: isHomeTeam,
+          onAfterSubmit: closeParentAfterSubmit
+              ? () => Navigator.of(context).pop()
+              : null,
+        );
       },
-    );
-  }
-
-  void _handleMetricTap(
-    BuildContext context,
-    MatchCaptureController controller,
-  ) {
-    final onAfterSubmit = closeParentAfterSubmit
-        ? () => Navigator.of(context).pop()
-        : null;
-
-    if (controller.needsDetailPicker) {
-      _showSheet(
-        context,
-        SubEvents(
-          controller: controller,
-          isHomeTeam: isHomeTeam,
-          onAfterSubmit: onAfterSubmit,
-        ),
-      );
-      return;
-    }
-
-    if (controller.needsSubDetailPicker) {
-      _showSheet(
-        context,
-        MetricSubDetails(
-          controller: controller,
-          isHomeTeam: isHomeTeam,
-          onAfterSubmit: onAfterSubmit,
-        ),
-      );
-      return;
-    }
-
-    controller.submitMetric(isHomeTeam: isHomeTeam);
-    onAfterSubmit?.call();
-  }
-
-  void _showSheet(BuildContext context, Widget sheet) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (_) => sheet,
     );
   }
 }

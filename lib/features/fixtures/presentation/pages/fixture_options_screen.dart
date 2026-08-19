@@ -125,6 +125,13 @@ class _OptionsBody extends GetView<AgentFixtureController> {
           title: 'Setup',
           children: [
             FixtureOptionButton(
+              icon: Icons.photo_camera_outlined,
+              label: 'Pitch arrival',
+              subtitle: 'Pitch photo and GPS check-in',
+              onPressed: controller.goToPitchArrivalScreen,
+            ),
+            const SizedBox(height: 8),
+            FixtureOptionButton(
               icon: Icons.people_alt_outlined,
               label: 'Match officials',
               style: FixtureOptionStyle.secondary,
@@ -162,10 +169,11 @@ class _OptionsBody extends GetView<AgentFixtureController> {
             ),
             const SizedBox(height: 8),
             FixtureOptionButton(
-              icon: Icons.feedback_outlined,
-              label: 'Feedback',
+              icon: Icons.fact_check_outlined,
+              label: 'SOP',
+              subtitle: 'Lineup photos, referee data, corrections',
               style: FixtureOptionStyle.info,
-              onPressed: controller.goToFeedbackScreen,
+              onPressed: controller.goToSopScreen,
             ),
             const SizedBox(height: 8),
             Row(

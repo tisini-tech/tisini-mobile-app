@@ -2,8 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:tisini/core/constants/colors.dart';
+import 'package:tisini/core/widgets/snackbar/snackbar.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
 import 'package:tisini/features/match_capture/presentation/services/capture_dnd_service.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/focus_mode_dialog.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/player_capture.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/stats_appbar.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/team_capture.dart';
@@ -18,6 +21,7 @@ class MatchCaptureScreen extends StatefulWidget {
 class _MatchCaptureScreenState extends State<MatchCaptureScreen>
     with WidgetsBindingObserver {
   bool _active = true;
+  bool _promptVisible = false;
 
   @override
   void initState() {
@@ -27,40 +31,50 @@ class _MatchCaptureScreenState extends State<MatchCaptureScreen>
   }
 
   Future<void> _enableDnd({bool offerPrompt = true}) async {
+    if (!_active || !mounted || !CaptureDndService.instance.isSupported) {
+      return;
+    }
+
+    final wasWaiting = CaptureDndService.instance.isWaitingForPolicyAccess;
+    final result = await CaptureDndService.instance.enableForCapture();
     if (!_active || !mounted) return;
 
-    final enabled = await CaptureDndService.instance.enableForCapture();
-    if (!_active || !mounted || enabled || !offerPrompt) return;
-
-    await _showAccessPrompt();
+    switch (result) {
+      case CaptureDndResult.enabled:
+        if (wasWaiting) {
+          showSnackbar(
+            'Focus mode',
+            'Notifications are silenced for this match.',
+            TColors.success,
+            duration: 2,
+          );
+        }
+      case CaptureDndResult.unsupported:
+        break;
+      case CaptureDndResult.policyAccessRequired:
+        if (offerPrompt) {
+          await _showAccessPrompt();
+        }
+      case CaptureDndResult.failedToEnable:
+        if (offerPrompt) {
+          await _showAccessPrompt(failedToEnable: true);
+        }
+    }
   }
 
-  Future<void> _showAccessPrompt() async {
-    if (!_active || !mounted) return;
+  Future<void> _showAccessPrompt({bool failedToEnable = false}) async {
+    if (!_active || !mounted || _promptVisible) return;
 
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Focus mode'),
-        content: const Text(
-          'Match capture works best without notification interruptions. '
-          'On the next screen, allow Tisini to control Do Not Disturb, then return here.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Not now'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              CaptureDndService.instance.openPolicyAccessSettings();
-            },
-            child: const Text('Open settings'),
-          ),
-        ],
-      ),
-    );
+    _promptVisible = true;
+    try {
+      await showFocusModeAccessDialog(
+        context,
+        failedToEnable: failedToEnable,
+        onOpenSettings: CaptureDndService.instance.openPolicyAccessSettings,
+      );
+    } finally {
+      _promptVisible = false;
+    }
   }
 
   @override
@@ -74,7 +88,10 @@ class _MatchCaptureScreenState extends State<MatchCaptureScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed && _active && mounted) {
-      unawaited(_enableDnd(offerPrompt: false));
+      final shouldPrompt =
+          CaptureDndService.instance.isWaitingForPolicyAccess ||
+          !CaptureDndService.instance.isEnabledByApp;
+      unawaited(_enableDnd(offerPrompt: shouldPrompt));
     }
   }
 

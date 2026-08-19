@@ -31,3 +31,41 @@ class GetCachedSurveysUsecase implements UseCase<List<Survey>, NoParams> {
     return repository.getCachedSurveys();
   }
 }
+
+class UpsertCachedSurveyUsecase
+    implements UseCase<void, UpsertCachedSurveyParams> {
+  final SurveyRepository repository;
+
+  UpsertCachedSurveyUsecase({required this.repository});
+
+  @override
+  Future<Either<Failure, void>> call(UpsertCachedSurveyParams params) async {
+    return repository.upsertCachedSurvey(params.survey);
+  }
+}
+
+class UpsertCachedSurveyParams {
+  final Survey survey;
+
+  const UpsertCachedSurveyParams({required this.survey});
+}
+
+class GetCachedSurveyByIdUsecase
+    implements UseCase<Survey?, GetCachedSurveyByIdParams> {
+  final SurveyRepository repository;
+
+  GetCachedSurveyByIdUsecase({required this.repository});
+
+  @override
+  Future<Either<Failure, Survey?>> call(
+    GetCachedSurveyByIdParams params,
+  ) async {
+    return repository.getCachedSurveyById(params.surveyId);
+  }
+}
+
+class GetCachedSurveyByIdParams {
+  final String surveyId;
+
+  const GetCachedSurveyByIdParams({required this.surveyId});
+}

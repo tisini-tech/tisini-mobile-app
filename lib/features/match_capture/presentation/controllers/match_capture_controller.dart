@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:tisini/core/error/failures.dart';
 import 'package:tisini/core/widgets/snackbar/snackbar.dart';
 import 'package:tisini/features/fixtures/domain/entities/agent_fixture.dart';
 import 'package:tisini/features/fixtures/presentation/controllers/agent_fixture_controller.dart';
@@ -22,14 +24,22 @@ import 'package:tisini/features/match_capture/domain/usecases/update_match_event
 import 'package:tisini/features/match_capture/domain/usecases/team_lineup.dart';
 import 'package:tisini/features/match_capture/domain/usecases/swap_players.dart';
 import 'package:tisini/features/match_capture/domain/usecases/match_scores.dart';
+import 'package:tisini/features/match_capture/domain/usecases/team_players.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/timer_controller.dart';
+import 'package:tisini/features/match_capture/presentation/pages/behaviour_screen.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/edit_player_sheet.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/match_recording_guard.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/player_capture_events.dart';
 import 'package:tisini/shared/fixture_data/domain/entities/match_data.dart';
 import 'package:tisini/shared/fixture_data/domain/usecases/get_fixture_data_usecase.dart';
 import 'package:tisini/shared/fixture_data/domain/usecases/match_data_usecase.dart';
 
-class MatchCaptureController extends GetxController {
+class MatchCaptureController extends GetxController
+    with WidgetsBindingObserver {
   static MatchCaptureController get instance => Get.find();
+
+  static const _rugby7FixtureType = 'rugby7';
+  static const _lineupPollInterval = Duration(seconds: 15);
 
   TimerController get timerController => Get.find();
 
@@ -39,6 +49,10 @@ class MatchCaptureController extends GetxController {
   String get matchQuarter => timerController.quarter.value;
   String get matchHalf => timerController.half.value;
   Formation? get selectedFormation => timerController.selectedFormation.value;
+
+  bool get canRecordEvents => timerController.canRecordEvents;
+
+  MatchRecordingBlock get recordingBlock => timerController.recordingBlock;
 
   final Rx<AgentFixture?> fixture = Rx<AgentFixture?>(null);
 
@@ -52,6 +66,7 @@ class MatchCaptureController extends GetxController {
   final MatchScoresUsecase matchScoresUsecase;
   final GetMatchDataUsecase matchDataUsecase;
   final GetMatchEventCategoriesUseCase getMatchEventCategories;
+  final UpdateTeamPlayerUsecase updateTeamPlayerUsecase;
 
   MatchCaptureController({
     required this.matchMetrics,
@@ -64,6 +79,7 @@ class MatchCaptureController extends GetxController {
     required this.matchScoresUsecase,
     required this.matchDataUsecase,
     required this.getMatchEventCategories,
+    required this.updateTeamPlayerUsecase,
   });
 
   final box = GetStorage();
@@ -105,6 +121,11 @@ class MatchCaptureController extends GetxController {
   /// [selectedStarterPlayer] after every submit).
   Lineup? _playerLockedForStatSheet;
 
+  Timer? _lineupPollTimer;
+  bool _isLineupPollInFlight = false;
+  bool _isLineupMutationInFlight = false;
+  bool _isAppInForeground = true;
+
   String? get pitchBgImage {
     switch (fixture.value?.fixtureType) {
       case 'rugby15':
@@ -126,9 +147,22 @@ class MatchCaptureController extends GetxController {
     }
   }
 
+  bool get _isRugby7Fixture =>
+      (fixture.value?.fixtureType ?? '') == _rugby7FixtureType;
+
+  bool get _canPollLineups =>
+      _isRugby7Fixture &&
+      _isAppInForeground &&
+      !isLoadingEvents.value &&
+      !isReorderMode.value &&
+      reorderSourcePlayer.value == null &&
+      !_isLineupMutationInFlight &&
+      !_isLineupPollInFlight;
+
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
 
     // Support both: arguments: fixture and arguments: {'fixture': fixture}
     final args = Get.arguments;
@@ -140,7 +174,7 @@ class MatchCaptureController extends GetxController {
       fixture.value = null;
     }
 
-    loadEventsAndLineups();
+    loadEventsAndLineups().whenComplete(_startLineupPollingIfNeeded);
     getMatchCategories();
     getFixtureData();
     getMatchScore();
@@ -148,11 +182,75 @@ class MatchCaptureController extends GetxController {
 
   @override
   void onClose() {
+    _stopLineupPolling();
+    WidgetsBinding.instance.removeObserver(this);
     // Refresh fixture-options counts when leaving capture (back button, etc.).
     if (Get.isRegistered<AgentFixtureController>()) {
       Get.find<AgentFixtureController>().loadFixtureEvents();
     }
     super.onClose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        _isAppInForeground = true;
+        _startLineupPollingIfNeeded();
+        if (_canPollLineups) {
+          unawaited(_pollLineups());
+        }
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        _isAppInForeground = false;
+        _stopLineupPolling();
+    }
+  }
+
+  void _startLineupPollingIfNeeded() {
+    if (!_isRugby7Fixture || _lineupPollTimer != null) return;
+
+    _lineupPollTimer = Timer.periodic(_lineupPollInterval, (_) {
+      unawaited(_pollLineups());
+    });
+  }
+
+  void _stopLineupPolling() {
+    _lineupPollTimer?.cancel();
+    _lineupPollTimer = null;
+  }
+
+  Future<void> _pollLineups() async {
+    if (!_canPollLineups) return;
+
+    _isLineupPollInFlight = true;
+    try {
+      await refreshLineups(silent: true);
+    } finally {
+      _isLineupPollInFlight = false;
+    }
+  }
+
+  String _lineupFingerprint(Lineup player) {
+    return [
+      player.player.id,
+      player.role,
+      player.lineupPosition,
+      player.jerseyNumber,
+      player.isGoalkeeper,
+      player.teamPlayer,
+      player.isSentOff,
+    ].join('|');
+  }
+
+  bool _sameLineup(List<Lineup> current, List<Lineup> next) {
+    if (current.length != next.length) return false;
+    final currentKeys = current.map(_lineupFingerprint).toSet();
+    final nextKeys = next.map(_lineupFingerprint).toSet();
+    return currentKeys.length == nextKeys.length &&
+        currentKeys.containsAll(nextKeys);
   }
 
   Future<void> getMatchCategories() async {
@@ -179,15 +277,34 @@ class MatchCaptureController extends GetxController {
     return box.read('token') as String?;
   }
 
+  /// Category IDs for behaviour traits — excluded from the main events grid
+  /// and shown on the dedicated Behaviour screen instead.
+  static const _behaviourCategoryIds = {22, 23};
+
+  List<Metric> get behaviourMetrics => metricsList
+      .where((e) => _behaviourCategoryIds.contains(e.metricCategory))
+      .toList()
+    ..sort((a, b) => a.order.compareTo(b.order));
+
   void getTeamEvents() {
     if (isTeamCaptureView.value) {
-      final events = metricsList.where((event) => event.isTeam == 1).toList()
+      final events = metricsList
+          .where(
+            (e) =>
+                e.isTeam == 1 &&
+                !_behaviourCategoryIds.contains(e.metricCategory),
+          )
+          .toList()
         ..sort((a, b) => a.order.compareTo(b.order));
       teamEvents.assignAll(events);
     } else {
       const excludeEvents = {17, 39, 52, 110, 226, 252};
       teamEvents.assignAll(
-        metricsList.where((event) => !excludeEvents.contains(event.id)),
+        metricsList.where(
+          (e) =>
+              !excludeEvents.contains(e.id) &&
+              !_behaviourCategoryIds.contains(e.metricCategory),
+        ),
       );
     }
   }
@@ -341,8 +458,13 @@ class MatchCaptureController extends GetxController {
 
   bool get needsDetailPicker => filteredSubEvents.isNotEmpty;
 
-  bool get needsSubDetailPicker =>
-      selectedEvent.value?.subDetails.isNotEmpty ?? false;
+  /// Show sub-detail sheet only when the selected detail opts in
+  /// ([Detail.needsSubDetails]) and the metric actually has sub-details.
+  bool get needsSubDetailPicker {
+    final detail = selectedSubEvent.value;
+    final hasSubDetails = selectedEvent.value?.subDetails.isNotEmpty ?? false;
+    return hasSubDetails && (detail?.needsSubDetails ?? false);
+  }
 
   void selectSubPlayer(Lineup? player) {
     selectedSubPlayer.value = player;
@@ -371,7 +493,13 @@ class MatchCaptureController extends GetxController {
     );
   }
 
-  void openEventsScreen({required bool isHomeTeam, required Lineup player}) {
+  void openEventsScreen({
+    required BuildContext context,
+    required bool isHomeTeam,
+    required Lineup player,
+  }) async {
+    if (!await ensureMatchRecordingAllowed(context: context)) return;
+
     selectStarterPlayer(player);
     _playerLockedForStatSheet = player;
     Get.to(
@@ -380,12 +508,82 @@ class MatchCaptureController extends GetxController {
     )?.whenComplete(_clearStatSheetPlayerLock);
   }
 
+  void openBehaviourForm({
+    required BuildContext context,
+    required bool isHomeTeam,
+    required Lineup player,
+    bool bypassGuard = false,
+  }) async {
+    if (!bypassGuard &&
+        !await ensureMatchRecordingAllowed(context: context)) return;
+
+    selectStarterPlayer(player);
+    _playerLockedForStatSheet = player;
+    Get.to(
+      () => BehaviourScreen(bypassGuard: bypassGuard),
+      fullscreenDialog: true,
+    )?.whenComplete(_clearStatSheetPlayerLock);
+  }
+
+  /// Submits one event per entry in [selections] (metricId -> chosen Detail).
+  /// Skips metrics where no detail was chosen (null value).
+  /// Pass [bypassGuard] = true to skip the match-start check (retrospective entry).
+  Future<void> submitBehaviourForm({
+    required bool isHomeTeam,
+    required Map<int, Detail?> selections,
+    bool bypassGuard = false,
+  }) async {
+    final player = _lineupForSubmit();
+    final teamName =
+        isHomeTeam ? fixture.value?.team1Name : fixture.value?.team2Name;
+
+    var submitted = 0;
+    for (final entry in selections.entries) {
+      final detail = entry.value;
+      if (detail == null) continue;
+
+      final metric = metricsList.firstWhereOrNull((m) => m.id == entry.key);
+      if (metric == null) continue;
+
+      final pName = player != null ? player.player.name : teamName;
+      final narration = '${metric.name} — ${detail.name} by $pName';
+
+      await _submitMatchEvent(
+        isHomeTeam: isHomeTeam,
+        submission: _MatchEventSubmission(
+          addOwnGoal: false,
+          metricId: metric.id,
+          metricDetailId: int.tryParse(detail.id) ?? 0,
+          playerId:
+              int.tryParse(player?.player.id.toString() ?? '') ?? 0,
+          narration: narration,
+          snackbarTitle: '${metric.name} — ${detail.name}',
+          successBody: (msg) => msg,
+          successDuration: 1,
+          snackPosition: SnackPosition.TOP,
+        ),
+      );
+      submitted++;
+    }
+
+    if (submitted > 0) {
+      showSnackbar(
+        'Behaviour saved',
+        '$submitted behaviour trait${submitted == 1 ? '' : 's'} recorded.',
+        Colors.green,
+        position: SnackPosition.TOP,
+      );
+    }
+  }
+
   void _clearStatSheetPlayerLock() {
     _playerLockedForStatSheet = null;
     selectedStarterPlayer.value = null;
   }
 
   /// Prefer lock from stat sheet, then Rx; re-resolve by [Lineup.playerId] after lineup refresh.
+  Lineup? get playerForStatSheet => _lineupForSubmit();
+
   Lineup? _lineupForSubmit() {
     final pinned = _playerLockedForStatSheet ?? selectedStarterPlayer.value;
     if (pinned == null) return null;
@@ -398,6 +596,89 @@ class MatchCaptureController extends GetxController {
       if (p.player.id.toString().trim() == pid) return p;
     }
     return pinned;
+  }
+
+  /// Updates player name / position / jersey via API, then patches live lineup lists.
+  /// Returns `true` when the API update succeeds.
+  Future<bool> updateCapturedPlayer(
+    Lineup player,
+    SavedLineupPlayerEdit edit,
+  ) async {
+    final result = await updateTeamPlayerUsecase.call(
+      UpdateTeamPlayerParams(
+        teamId: player.team.toString(),
+        playerId: player.teamPlayer.toString(),
+        player: {
+          'fname': edit.firstName,
+          'sname': edit.lastName,
+          'oname': edit.surname,
+          'position': edit.position,
+          'jersey': edit.jerseyNumber.toString(),
+          'fixture_id': fixture.value?.id.toString() ?? '',
+        },
+      ),
+    );
+
+    return result.fold(
+      (failure) {
+        showSnackbar('Player update error', failure.message, Colors.red);
+        return false;
+      },
+      (_) {
+        final name = edit.fullName.isNotEmpty
+            ? edit.fullName
+            : player.player.name;
+        final position = edit.position.isNotEmpty
+            ? edit.position
+            : player.player.currentPosition;
+
+        final patched = LineupModel.fromEntity(player).copyWith(
+          player: PlayerModel.fromEntity(
+            player.player,
+          ).copyWith(name: name, currentPosition: position),
+          jerseyNumber: edit.jerseyNumber,
+        );
+
+        _patchPlayerInLineups(patched);
+        _playerLockedForStatSheet = patched;
+        if (selectedStarterPlayer.value?.id == player.id ||
+            selectedStarterPlayer.value?.player.id == player.player.id) {
+          selectedStarterPlayer.value = patched;
+        }
+        if (selectedSubPlayer.value?.id == player.id ||
+            selectedSubPlayer.value?.player.id == player.player.id) {
+          selectedSubPlayer.value = patched;
+        }
+        _syncLineupPresentation();
+
+        showSnackbar(
+          'Player updated',
+          '$name · #${edit.jerseyNumber}',
+          Colors.green,
+        );
+        return true;
+      },
+    );
+  }
+
+  void _patchPlayerInLineups(Lineup patched) {
+    final pid = patched.player.id.toString().trim();
+    final lineupId = patched.id;
+
+    void patchList(RxList<Lineup> list) {
+      final index = list.indexWhere(
+        (p) =>
+            p.id == lineupId ||
+            (pid.isNotEmpty && p.player.id.toString().trim() == pid),
+      );
+      if (index >= 0) {
+        list[index] = patched;
+        list.refresh();
+      }
+    }
+
+    patchList(homeLineup);
+    patchList(awayLineup);
   }
 
   void goToLineupSelectorScreen({required bool isHomeTeam}) {
@@ -487,7 +768,9 @@ class MatchCaptureController extends GetxController {
   }
 
   /// Refreshes only lineups (no loading indicator). Use after substitution etc.
-  Future<void> refreshLineups() async {
+  /// When [silent] is true (polling), failures are logged only and unchanged
+  /// lineups are not reassigned.
+  Future<void> refreshLineups({bool silent = false}) async {
     final token = await getToken();
     final fixtureId = fixture.value?.id.toString() ?? '';
     final homeId = fixture.value?.team1Id.toString() ?? '';
@@ -505,21 +788,46 @@ class MatchCaptureController extends GetxController {
         ),
       ]);
 
+      var changed = false;
+
       results[0].fold(
-        (failure) => showSnackbar('Lineup', failure.message, Colors.red),
-        (list) => homeLineup.assignAll(
-          _uniqueLineupById(List<Lineup>.from(list as List)),
-        ),
+        (failure) {
+          if (silent) {
+            debugPrint('Lineup poll (home): ${failure.message}');
+          } else {
+            showSnackbar('Lineup', failure.message, Colors.red);
+          }
+        },
+        (list) {
+          final next = _uniqueLineupById(List<Lineup>.from(list as List));
+          if (!_sameLineup(homeLineup, next)) {
+            homeLineup.assignAll(next);
+            changed = true;
+          }
+        },
       );
       results[1].fold(
-        (failure) => showSnackbar('Lineup', failure.message, Colors.red),
-        (list) => awayLineup.assignAll(
-          _uniqueLineupById(List<Lineup>.from(list as List)),
-        ),
+        (failure) {
+          if (silent) {
+            debugPrint('Lineup poll (away): ${failure.message}');
+          } else {
+            showSnackbar('Lineup', failure.message, Colors.red);
+          }
+        },
+        (list) {
+          final next = _uniqueLineupById(List<Lineup>.from(list as List));
+          if (!_sameLineup(awayLineup, next)) {
+            awayLineup.assignAll(next);
+            changed = true;
+          }
+        },
       );
-      getCaptureView();
-      getTeamEvents();
-      _syncLineupPresentation();
+
+      if (changed) {
+        getCaptureView();
+        getTeamEvents();
+        _syncLineupPresentation();
+      }
     } catch (e) {
       debugPrint('Error refreshing lineups: $e');
     }
@@ -606,13 +914,19 @@ class MatchCaptureController extends GetxController {
 
     final swapPlayers = _swapPlayersPayload(source, player);
 
-    final response = await swapPlayersUsecase.call(
-      SwapPlayersParams(
-        teamId: player.team.toString(),
-        fixtureId: fixture.value?.id.toString() ?? '',
-        players: swapPlayers,
-      ),
-    );
+    _isLineupMutationInFlight = true;
+    late final Either<Failure, List<Lineup>> response;
+    try {
+      response = await swapPlayersUsecase.call(
+        SwapPlayersParams(
+          teamId: player.team.toString(),
+          fixtureId: fixture.value?.id.toString() ?? '',
+          players: swapPlayers,
+        ),
+      );
+    } finally {
+      _isLineupMutationInFlight = false;
+    }
 
     response.fold(
       (failure) {
@@ -665,6 +979,25 @@ class MatchCaptureController extends GetxController {
   }
 
   static const _substitutionEventIds = {'17', '39', '52', '110', '226', '252'};
+
+  /// Linked auto-event rules: when a primary metric + specific detail (subevent)
+  /// + sub-detail combination is submitted, a secondary event is automatically fired.
+  ///
+  /// Structure: metricId → detailId → subDetailId → (linkedMetricId, linkedDetailId)
+  ///
+  /// e.g. Penalty Gain (261) + detail Scrum (698) + sub-detail Won (57)
+  ///       → auto-fire Scrum (262) with detail Won (702)
+  static const _linkedEventRules =
+      <int, Map<String, Map<String, (int metricId, int detailId)>>>{
+    261: {
+      '698': {              // detail = Scrum
+        '57': (262, 702),   // sub-detail Won    → Scrum Won
+        '58': (262, 703),   // sub-detail Lost   → Scrum Lost
+        '59': (262, 704),   // sub-detail Stolen → Scrum Stolen
+      },
+    },
+  };
+
   static const _scoreRefreshEventIds = {
     '19',
     '49',
@@ -675,8 +1008,9 @@ class MatchCaptureController extends GetxController {
     '33',
   };
 
-  void submitOwnGoal({required bool isHomeTeam}) async {
+  void submitOwnGoal({required bool isHomeTeam, BuildContext? context}) async {
     if ((fixture.value?.fixtureType ?? '') != 'football') return;
+    if (!await ensureMatchRecordingAllowed(context: context)) return;
 
     await _submitMatchEvent(
       isHomeTeam: isHomeTeam,
@@ -691,7 +1025,9 @@ class MatchCaptureController extends GetxController {
     );
   }
 
-  void submitMetric({required bool isHomeTeam}) async {
+  void submitMetric({required bool isHomeTeam, BuildContext? context}) async {
+    if (!await ensureMatchRecordingAllowed(context: context)) return;
+
     final event = selectedEvent.value;
     if (event == null) return;
 
@@ -769,6 +1105,16 @@ class MatchCaptureController extends GetxController {
           },
         ),
       );
+
+      // Fire any linked auto-event defined by the rule table.
+      await _submitLinkedEvent(
+        primaryMetricId: event.id,
+        detailId: subevent?.id,
+        subDetailId: subDetail?.id,
+        isHomeTeam: isHomeTeam,
+        player: player,
+        teamName: teamName,
+      );
     } catch (e) {
       debugPrint('Error submitting event: $e');
       showSnackbar(
@@ -778,6 +1124,53 @@ class MatchCaptureController extends GetxController {
         position: SnackPosition.TOP,
       );
     }
+  }
+
+  /// Checks [_linkedEventRules] and, if a rule matches, silently submits the
+  /// linked secondary event. No snackbar is shown — the primary event's
+  /// feedback is sufficient.
+  Future<void> _submitLinkedEvent({
+    required int primaryMetricId,
+    required String? detailId,
+    required String? subDetailId,
+    required bool isHomeTeam,
+    required Lineup? player,
+    required String? teamName,
+  }) async {
+    if (detailId == null || subDetailId == null) return;
+    final byDetail = _linkedEventRules[primaryMetricId];
+    if (byDetail == null) return;
+    final rules = byDetail[detailId];
+    if (rules == null) return;
+    final rule = rules[subDetailId];
+    if (rule == null) return;
+
+    final (linkedMetricId, linkedDetailId) = rule;
+    final linkedMetric = metricsList.firstWhereOrNull(
+      (m) => m.id == linkedMetricId,
+    );
+    final pName = player != null ? player.player.name : teamName;
+    final linkedDetailName = linkedMetric?.details
+        .firstWhereOrNull((d) => int.tryParse(d.id) == linkedDetailId)
+        ?.name;
+    final narration = linkedDetailName != null
+        ? '${linkedMetric?.name ?? 'Auto'} — $linkedDetailName by $pName'
+        : '${linkedMetric?.name ?? 'Auto'} by $pName';
+
+    await _submitMatchEvent(
+      isHomeTeam: isHomeTeam,
+      submission: _MatchEventSubmission(
+        addOwnGoal: false,
+        metricId: linkedMetricId,
+        metricDetailId: linkedDetailId,
+        playerId: int.tryParse(player?.player.id.toString() ?? '') ?? 0,
+        narration: narration,
+        snackbarTitle: linkedMetric?.name ?? 'Auto event',
+        successBody: (msg) => msg,
+        successDuration: 1,
+        snackPosition: SnackPosition.TOP,
+      ),
+    );
   }
 
   Future<void> _submitMatchEvent({

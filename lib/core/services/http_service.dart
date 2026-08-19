@@ -34,15 +34,56 @@ class HttpService {
     );
   }
 
-  Future<Response> post(String path, dynamic data) =>
-      _request(() => _dio.post(path, data: data));
+  Options _requestOptions({bool withApiKey = false}) {
+    if (!withApiKey) return Options();
 
-  Future<Response> get(String path) => _request(() => _dio.get(path));
+    return Options(
+      headers: {'X-API-Key': ApiConstants.xToken},
+      extra: const {_AuthInterceptor.withApiKeyExtra: true},
+    );
+  }
 
-  Future<Response> patch(String path, dynamic data) =>
-      _request(() => _dio.patch(path, data: data));
+  Future<Response> post(String path, dynamic data, {bool withApiKey = false}) =>
+      _request(
+        () => _dio.post(
+          path,
+          data: data,
+          options: _postOptions(data, withApiKey: withApiKey),
+        ),
+      );
 
-  Future<Response> delete(String path) => _request(() => _dio.delete(path));
+  Options _postOptions(dynamic data, {required bool withApiKey}) {
+    final options = _requestOptions(withApiKey: withApiKey);
+    if (data is! FormData) return options;
+
+    final headers = Map<String, dynamic>.from(options.headers ?? {});
+    headers.remove('Content-Type');
+    headers.remove('content-type');
+    return options.copyWith(
+      headers: headers,
+      contentType: Headers.multipartFormDataContentType,
+    );
+  }
+
+  Future<Response> get(String path, {bool withApiKey = false}) => _request(
+    () => _dio.get(path, options: _requestOptions(withApiKey: withApiKey)),
+  );
+
+  Future<Response> patch(
+    String path,
+    dynamic data, {
+    bool withApiKey = false,
+  }) => _request(
+    () => _dio.patch(
+      path,
+      data: data,
+      options: _requestOptions(withApiKey: withApiKey),
+    ),
+  );
+
+  Future<Response> delete(String path, {bool withApiKey = false}) => _request(
+    () => _dio.delete(path, options: _requestOptions(withApiKey: withApiKey)),
+  );
 
   Future<Response> _request(Future<Response> Function() call) async {
     try {
@@ -74,6 +115,11 @@ class _AuthInterceptor extends QueuedInterceptor {
   final Dio _dio;
   Future<bool>? _refreshInFlight;
 
+  static const withApiKeyExtra = 'withApiKey';
+
+  static bool _usesApiKey(RequestOptions options) =>
+      options.extra[withApiKeyExtra] == true;
+
   static bool _isRefreshPath(String path) =>
       path.contains('/auth/refresh-token');
 
@@ -88,6 +134,13 @@ class _AuthInterceptor extends QueuedInterceptor {
 
   @override
   void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    if (_usesApiKey(options)) {
+      // API-key calls: do not attach/override with Bearer.
+      options.headers.remove('Authorization');
+      options.headers['X-API-Key'] = ApiConstants.xToken;
+      return handler.next(options);
+    }
+
     if (!_isRefreshPath(options.path)) {
       final token = AuthTokenStorage.accessToken;
       if (token != null && token.isNotEmpty) {
@@ -103,6 +156,7 @@ class _AuthInterceptor extends QueuedInterceptor {
     ResponseInterceptorHandler handler,
   ) async {
     if (response.statusCode == 401 &&
+        !_usesApiKey(response.requestOptions) &&
         !_isRefreshPath(response.requestOptions.path) &&
         !_isPublicAuthPath(response.requestOptions.path)) {
       final retried = await _retryAfterRefresh(response.requestOptions);
@@ -120,7 +174,10 @@ class _AuthInterceptor extends QueuedInterceptor {
   ) async {
     final status = err.response?.statusCode;
     final path = err.requestOptions.path;
-    if (status == 401 && !_isRefreshPath(path) && !_isPublicAuthPath(path)) {
+    if (status == 401 &&
+        !_usesApiKey(err.requestOptions) &&
+        !_isRefreshPath(path) &&
+        !_isPublicAuthPath(path)) {
       final retried = await _retryAfterRefresh(err.requestOptions);
       if (retried != null) {
         return handler.resolve(retried);

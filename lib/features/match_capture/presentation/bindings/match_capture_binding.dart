@@ -14,6 +14,7 @@ import 'package:tisini/features/match_capture/domain/usecases/update_match_event
 import 'package:tisini/features/match_capture/domain/usecases/start_end_match.dart';
 import 'package:tisini/features/match_capture/domain/usecases/team_lineup.dart';
 import 'package:tisini/features/match_capture/domain/usecases/swap_players.dart';
+import 'package:tisini/features/match_capture/domain/usecases/team_players.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/timer_controller.dart';
 import 'package:tisini/shared/fixture_data/domain/repositories/fixture_data_repository.dart';
@@ -51,6 +52,7 @@ class MatchCaptureBinding extends Bindings {
       () => GetMatchDataUsecase(repository: Get.find<FixtureDataRepository>()),
     );
     Get.lazyPut(() => GetMatchEventCategoriesUseCase(repository: Get.find()));
+    Get.lazyPut(() => UpdateTeamPlayerUsecase(repository: Get.find()));
     // Timer depends on MatchCaptureController (fixture); register MC first.
     Get.lazyPut(
       () => MatchCaptureController(
@@ -64,6 +66,7 @@ class MatchCaptureBinding extends Bindings {
         matchScoresUsecase: Get.find(),
         matchDataUsecase: Get.find(),
         getMatchEventCategories: Get.find(),
+        updateTeamPlayerUsecase: Get.find(),
       ),
     );
 

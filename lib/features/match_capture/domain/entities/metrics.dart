@@ -43,6 +43,7 @@ class Detail {
   final bool isPlayer;
   final String position;
   final double? strength;
+  final bool needsSubDetails;
 
   Detail({
     required this.id,
@@ -51,6 +52,7 @@ class Detail {
     required this.strength,
     required this.isPlayer,
     required this.position,
+    this.needsSubDetails = false,
   });
 }
 

@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import 'package:tisini/core/constants/colors.dart';
 import 'package:tisini/core/widgets/input_field.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/lineup_controller.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/player_position_dropdown.dart';
 
 class AddPlayerScreen extends GetView<LineupController> {
   const AddPlayerScreen({super.key});
@@ -62,12 +63,14 @@ class AddPlayerScreen extends GetView<LineupController> {
                   const SizedBox(height: 24),
                   _sectionTitle(context, 'Player details'),
                   const SizedBox(height: 12),
-                  InputField(
-                    label: 'Position',
-                    hintText: 'e.g. Fly-half, Striker',
-                    controller: controller.positionController,
-                    validator: controller.validateRequired,
-                    textInputAction: TextInputAction.next,
+                  Obx(
+                    () => PlayerPositionDropdown(
+                      fixtureType: controller.fixture.value?.fixtureType,
+                      value: controller.selectedPosition.value,
+                      onChanged: (value) =>
+                          controller.selectedPosition.value = value,
+                      validator: controller.validateRequired,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   InputField(

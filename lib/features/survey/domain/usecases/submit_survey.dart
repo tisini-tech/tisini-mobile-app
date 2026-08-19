@@ -10,28 +10,13 @@ class SubmitSurveyUsecase implements UseCase<String, SubmitSurveyParams> {
 
   @override
   Future<Either<Failure, String>> call(SubmitSurveyParams params) async {
-    return repository.saveSurvey(
-      params.survey,
-      params.code,
-      params.surveyId,
-      params.localId,
-      params.savedAt,
-    );
+    return repository.saveSurvey(params.survey, params.surveyId);
   }
 }
 
 class SubmitSurveyParams {
-  final Map<String, dynamic> survey;
-  final String code;
+  final List<Map<String, dynamic>> survey;
   final String surveyId;
-  final String localId;
-  final String savedAt;
 
-  SubmitSurveyParams({
-    required this.survey,
-    required this.code,
-    required this.surveyId,
-    required this.localId,
-    required this.savedAt,
-  });
+  SubmitSurveyParams({required this.survey, required this.surveyId});
 }

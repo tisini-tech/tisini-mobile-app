@@ -1,81 +1,112 @@
-import 'package:tisini/features/survey/data/models/engagement_model.dart';
-import 'package:tisini/features/survey/domain/entities/engagement.dart';
+import 'package:tisini/features/survey/data/models/questions_model.dart';
+import 'package:tisini/features/survey/domain/entities/questions.dart';
 import 'package:tisini/features/survey/domain/entities/survey.dart';
 
 class SurveyModel extends Survey {
   SurveyModel({
     required super.id,
     required super.title,
-    required super.dateCreated,
+    required super.description,
+    required super.imageUrl,
     required super.type,
-    required super.noEngagement,
-    required super.dateUpdated,
+    required super.playMode,
     required super.status,
-    required super.engagements,
+    required super.startsAt,
+    required super.endsAt,
+    required super.isPublic,
+    required super.isPayable,
+    required super.amountPayable,
+    required super.prizeDescription,
+    required super.company,
+    required super.match,
+    super.questions = const [],
   });
 
   SurveyModel copyWith({
-    String? id,
+    int? id,
     String? title,
-    DateTime? dateCreated,
+    String? description,
+    String? imageUrl,
     String? type,
-    String? noEngagement,
-    DateTime? dateUpdated,
+    String? playMode,
     String? status,
-    List<Engagement>? engagements,
+    DateTime? startsAt,
+    DateTime? endsAt,
+    bool? isPublic,
+    bool? isPayable,
+    String? amountPayable,
+    String? prizeDescription,
+    int? company,
+    int? match,
+    List<Questions>? questions,
   }) => SurveyModel(
     id: id ?? this.id,
     title: title ?? this.title,
-    dateCreated: dateCreated ?? this.dateCreated,
+    description: description ?? this.description,
+    imageUrl: imageUrl ?? this.imageUrl,
     type: type ?? this.type,
-    noEngagement: noEngagement ?? this.noEngagement,
-    dateUpdated: dateUpdated ?? this.dateUpdated,
+    playMode: playMode ?? this.playMode,
     status: status ?? this.status,
-    engagements: engagements ?? this.engagements,
+    startsAt: startsAt ?? this.startsAt,
+    endsAt: endsAt ?? this.endsAt,
+    isPublic: isPublic ?? this.isPublic,
+    isPayable: isPayable ?? this.isPayable,
+    amountPayable: amountPayable ?? this.amountPayable,
+    prizeDescription: prizeDescription ?? this.prizeDescription,
+    company: company ?? this.company,
+    match: match ?? this.match,
+    questions: questions ?? this.questions,
   );
 
   factory SurveyModel.fromJson(Map<String, dynamic> json) {
-    final engagementsRaw = json['engagements'];
-    final engagements = engagementsRaw is List
-        ? (engagementsRaw)
-            .map((e) => EngagementModel.fromJson(
-                  Map<String, dynamic>.from(e as Map),
-                ))
-            .toList()
-        : <Engagement>[];
+    final questionsRaw = json['questions'];
+    final questions = questionsRaw is List
+        ? questionsRaw
+              .whereType<Map>()
+              .map((e) => QuestionsModel.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+        : <Questions>[];
 
     return SurveyModel(
-      id: (json['id'] ?? '').toString(),
+      id: _toInt(json['id']),
       title: (json['title'] ?? '').toString(),
-      dateCreated: _parseDateTime(json['date_created']),
+      description: (json['description'] ?? '').toString(),
+      imageUrl: (json['image_url'] ?? '').toString(),
       type: (json['type'] ?? '').toString(),
-      noEngagement: (json['no_engagement'] ?? '0').toString(),
-      dateUpdated: _parseDateTime(json['date_updated']),
-      status: (json['status'] ?? '0').toString(),
-      engagements: engagements,
+      playMode: (json['play_mode'] ?? '').toString(),
+      status: (json['status'] ?? '').toString(),
+      startsAt: _parseDateTime(json['starts_at']),
+      endsAt: _parseDateTime(json['ends_at']),
+      isPublic: _toBool(json['is_public']),
+      isPayable: _toBool(json['is_payable']),
+      amountPayable: (json['amount_payable'] ?? '0').toString(),
+      prizeDescription: (json['prize_description'] ?? '').toString(),
+      company: _toInt(json['company']),
+      match: _toInt(json['match']),
+      questions: questions,
     );
-  }
-
-  static DateTime _parseDateTime(dynamic value) {
-    if (value == null) return DateTime.now();
-    if (value is DateTime) return value;
-    try {
-      return DateTime.parse(value.toString());
-    } catch (_) {
-      return DateTime.now();
-    }
   }
 
   factory SurveyModel.fromEntity(Survey entity) {
     return SurveyModel(
       id: entity.id,
       title: entity.title,
-      dateCreated: entity.dateCreated,
+      description: entity.description,
+      imageUrl: entity.imageUrl,
       type: entity.type,
-      noEngagement: entity.noEngagement,
-      dateUpdated: entity.dateUpdated,
+      playMode: entity.playMode,
       status: entity.status,
-      engagements: entity.engagements,
+      startsAt: entity.startsAt,
+      endsAt: entity.endsAt,
+      isPublic: entity.isPublic,
+      isPayable: entity.isPayable,
+      amountPayable: entity.amountPayable,
+      prizeDescription: entity.prizeDescription,
+      company: entity.company,
+      match: entity.match,
+      questions: entity.questions
+          .map((q) => q is QuestionsModel ? q : QuestionsModel.fromEntity(q))
+          .toList(),
     );
   }
 
@@ -83,14 +114,49 @@ class SurveyModel extends Survey {
     return {
       'id': id,
       'title': title,
-      'date_created': dateCreated.toIso8601String(),
+      'description': description,
+      'image_url': imageUrl,
       'type': type,
-      'no_engagement': noEngagement,
-      'date_updated': dateUpdated.toIso8601String(),
+      'play_mode': playMode,
       'status': status,
-      'engagements': engagements
-          .map((e) => EngagementModel.fromEntity(e).toJson())
-          .toList(),
+      'starts_at': startsAt.toIso8601String(),
+      'ends_at': endsAt.toIso8601String(),
+      'is_public': isPublic,
+      'is_payable': isPayable,
+      'amount_payable': amountPayable,
+      'prize_description': prizeDescription,
+      'company': company,
+      'match': match,
+      if (questions.isNotEmpty)
+        'questions': questions
+            .map((q) => QuestionsModel.fromEntity(q).toJson())
+            .toList(),
     };
+  }
+
+  static int _toInt(dynamic value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value.toString()) ?? 0;
+  }
+
+  static bool _toBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    final normalized = value?.toString().trim().toLowerCase();
+    return normalized == 'true' || normalized == '1';
+  }
+
+  static DateTime _parseDateTime(dynamic value) {
+    if (value == null) {
+      return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
+    if (value is DateTime) return value;
+    try {
+      return DateTime.parse(value.toString());
+    } catch (_) {
+      return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    }
   }
 }

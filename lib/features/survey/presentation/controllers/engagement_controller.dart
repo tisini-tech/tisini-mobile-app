@@ -1,30 +1,34 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:get/get.dart';
 import 'package:tisini/core/constants/colors.dart';
-import 'package:tisini/core/constants/survey.dart';
 import 'package:tisini/core/usecase/usecase.dart';
 import 'package:tisini/core/widgets/snackbar/snackbar.dart';
-import 'package:tisini/features/survey/domain/entities/engagement.dart';
+import 'package:tisini/features/survey/domain/entities/questions.dart';
 import 'package:tisini/features/survey/domain/entities/survey.dart';
 import 'package:tisini/features/survey/domain/usecases/cached_survey.dart';
 import 'package:tisini/features/survey/domain/usecases/fetch_survey.dart';
 import 'package:tisini/features/survey/domain/usecases/get_engagement_response_stats.dart';
-import 'package:tisini/features/survey/domain/usecases/sync_pending_engagement_responses.dart';
 import 'package:tisini/features/survey/domain/usecases/get_last_referral_code.dart';
 import 'package:tisini/features/survey/domain/usecases/save_engagement_response_locally.dart';
-import 'package:tisini/features/survey/domain/usecases/update_engagement_response_status.dart';
 import 'package:tisini/features/survey/domain/usecases/save_last_referral_code.dart';
 import 'package:tisini/features/survey/domain/usecases/submit_survey.dart';
+import 'package:tisini/features/survey/domain/usecases/sync_pending_engagement_responses.dart';
+import 'package:tisini/features/survey/domain/usecases/update_engagement_response_status.dart';
 import 'package:tisini/features/survey/presentation/widgets/referral_code_dialog.dart';
 
-class EngagementController extends GetxController
-    implements SurveyFormDelegate {
-  static EngagementController get instance => Get.find();
+class EngagementController extends GetxController {
+  static EngagementController get to => Get.find();
 
-  final FetchSurveyUsecase fetchSurveyUsecase;
-  final SaveCachedSurveysUsecase saveCachedSurveysUsecase;
-  final GetCachedSurveysUsecase getCachedSurveysUsecase;
+  static const answerTypeSingle = 'SA';
+  static const answerTypeMultiple = 'MA';
+  static const answerTypeFreeText = 'FT';
+
+  final FetchSurveyQuestionsUsecase fetchSurveyQuestionsUsecase;
+  final UpsertCachedSurveyUsecase upsertCachedSurveyUsecase;
+  final GetCachedSurveyByIdUsecase getCachedSurveyByIdUsecase;
   final GetLastReferralCode getLastReferralCode;
   final SaveLastReferralCode saveLastReferralCode;
   final SubmitSurveyUsecase submitSurveyUsecase;
@@ -34,9 +38,9 @@ class EngagementController extends GetxController
   final SyncPendingEngagementResponses syncPendingEngagementResponses;
 
   EngagementController({
-    required this.fetchSurveyUsecase,
-    required this.saveCachedSurveysUsecase,
-    required this.getCachedSurveysUsecase,
+    required this.fetchSurveyQuestionsUsecase,
+    required this.upsertCachedSurveyUsecase,
+    required this.getCachedSurveyByIdUsecase,
     required this.getLastReferralCode,
     required this.saveLastReferralCode,
     required this.submitSurveyUsecase,
@@ -46,37 +50,82 @@ class EngagementController extends GetxController
     required this.syncPendingEngagementResponses,
   });
 
-  final RxList<Survey> surveys = <Survey>[].obs;
+  late final String surveyId;
 
-  /// questionId (int) or contact field key -> value
-  final Rx<Map<Object, dynamic>> answers = Rx<Map<Object, dynamic>>({});
-
+  final Rxn<Survey> survey = Rxn<Survey>();
+  final RxBool isLoading = false.obs;
   final RxInt currentQuestionIndex = 0.obs;
-
-  final RxInt _surveyFormVersionRx = 0.obs;
-
-  final RxString referralCode = ''.obs;
+  final RxString surveyer = ''.obs;
+  final RxInt formVersion = 0.obs;
 
   final RxInt successResponses = 0.obs;
   final RxInt totalResponses = 0.obs;
   final RxBool isSyncing = false.obs;
+  final RxBool isSubmitting = false.obs;
 
-  String get surveyTitle => surveys.isNotEmpty ? surveys.first.title : 'Survey';
+  /// questionId → answer payload item
+  final RxMap<int, Map<String, dynamic>> answers =
+      <int, Map<String, dynamic>>{}.obs;
 
-  @override
-  int get surveyFormVersion => _surveyFormVersionRx.value;
+  DateTime? _questionStartedAt;
+
+  List<Questions> get questions {
+    final list = [...(survey.value?.questions ?? const <Questions>[])];
+    list.sort((a, b) => a.order.compareTo(b.order));
+    return list;
+  }
+
+  int get totalQuestions => questions.length;
+
+  Questions? get currentQuestion {
+    final list = questions;
+    if (list.isEmpty) return null;
+    final index = currentQuestionIndex.value.clamp(0, list.length - 1);
+    return list[index];
+  }
+
+  bool get isFirstQuestion => currentQuestionIndex.value <= 0;
+
+  bool get isLastQuestion =>
+      totalQuestions > 0 && currentQuestionIndex.value >= totalQuestions - 1;
+
+  String get surveyTitle => survey.value?.title ?? 'Survey';
+
+  int get pendingResponses =>
+      (totalResponses.value - successResponses.value).clamp(0, 1 << 30);
 
   @override
   void onInit() {
     super.onInit();
+    surveyId = _parseSurveyId(Get.arguments);
+    _bootstrap();
+  }
 
-    fetchSurvey();
-    _loadLastReferralCode();
-    refreshResponseStats();
+  Future<void> _bootstrap() async {
+    await _loadLastSurveyer();
+    await refreshResponseStats();
+    await fetchSurveyQuestions();
+    if (surveyer.value.isEmpty) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        _showSurveyerDialog(requireValue: true);
+      });
+    }
+  }
 
-    SchedulerBinding.instance.addPostFrameCallback(
-      (_) => _showReferralCodeDialog(),
-    );
+  String _parseSurveyId(dynamic args) {
+    if (args is Survey) return args.id.toString();
+    if (args is int) return args.toString();
+    if (args is String && args.trim().isNotEmpty) return args.trim();
+    return '';
+  }
+
+  Future<void> _loadLastSurveyer() async {
+    final result = await getLastReferralCode(const NoParams());
+    result.fold((_) {}, (code) {
+      if (code != null && code.trim().isNotEmpty) {
+        surveyer.value = code.trim();
+      }
+    });
   }
 
   Future<void> refreshResponseStats() async {
@@ -88,8 +137,7 @@ class EngagementController extends GetxController
   }
 
   Future<void> syncPendingResponses() async {
-    final pending = totalResponses.value - successResponses.value;
-    if (pending <= 0) {
+    if (pendingResponses <= 0) {
       showSnackbar('Sync', 'No responses to sync.', TColors.textSecondary);
       return;
     }
@@ -107,139 +155,323 @@ class EngagementController extends GetxController
     );
   }
 
-  Future<void> _loadLastReferralCode() async {
-    final result = await getLastReferralCode(const NoParams());
-    result.fold((_) {}, (code) {
-      if (code != null && code.trim().isNotEmpty) {
-        referralCode.value = code.trim();
-      }
-    });
-  }
-
-  Future<void> _showReferralCodeDialog() async {
+  Future<void> _showSurveyerDialog({bool requireValue = false}) async {
     final context = Get.context;
     if (context == null || !context.mounted) return;
+
     final result = await Get.dialog<String>(
-      ReferralCodeDialog(initialValue: referralCode.value),
-      barrierDismissible: false,
+      ReferralCodeDialog(
+        initialValue: surveyer.value,
+        title: 'Surveyer',
+        hintText: 'Enter surveyer id',
+        showSkip: !requireValue && surveyer.value.isNotEmpty,
+      ),
+      barrierDismissible: !requireValue,
     );
-    if (result != null) {
-      referralCode.value = result;
-      saveLastReferralCode(
-        SaveLastReferralCodeParams(code: result),
-      ).then((_) {});
+
+    if (result != null && result.isNotEmpty) {
+      surveyer.value = result;
+      await saveLastReferralCode(SaveLastReferralCodeParams(code: result));
+      return;
+    }
+
+    if (requireValue && surveyer.value.isEmpty) {
+      showSnackbar('Survey', 'Surveyer is required', TColors.error);
+      await _showSurveyerDialog(requireValue: true);
     }
   }
 
-  /// Call this to show the referral code dialog again (e.g. from app bar).
-  void showReferralCodeDialog() => _showReferralCodeDialog();
+  /// Re-open surveyer dialog (e.g. from app bar).
+  void showSurveyerDialog() => _showSurveyerDialog();
 
-  Future<void> fetchSurvey() async {
-    final result = await fetchSurveyUsecase(const NoParams());
+  Future<void> fetchSurveyQuestions() async {
+    if (surveyId.isEmpty) {
+      showSnackbar('Error', 'Missing survey id', TColors.error);
+      return;
+    }
+
+    isLoading.value = true;
+    final result = await fetchSurveyQuestionsUsecase(
+      SurveyParams(surveyId: surveyId),
+    );
+    isLoading.value = false;
 
     await result.fold(
       (failure) async {
-        final cached = await getCachedSurveysUsecase(const NoParams());
+        final cached = await getCachedSurveyByIdUsecase(
+          GetCachedSurveyByIdParams(surveyId: surveyId),
+        );
         cached.fold(
           (_) => showSnackbar('Error', failure.message, TColors.error),
-          (list) {
-            if (list.isEmpty) {
-              showSnackbar('Error', failure.message, TColors.error);
+          (data) {
+            if (data == null || data.questions.isEmpty) {
+              showSnackbar(
+                'Offline',
+                'Survey not saved on this device. Open it online first.',
+                TColors.error,
+              );
               return;
             }
-            surveys.assignAll(list);
-            showSnackbar('Offline', 'Showing last saved survey.', TColors.info);
+            _applySurvey(data);
+            showSnackbar('Offline', 'Showing saved survey.', TColors.info);
           },
         );
       },
-      (list) async {
-        surveys.assignAll(list);
-        await saveCachedSurveysUsecase(SaveCachedSurveysParams(surveys: list));
+      (data) async {
+        _applySurvey(data);
+        await upsertCachedSurveyUsecase(UpsertCachedSurveyParams(survey: data));
       },
     );
   }
 
-  /// Flatten all engagements from all surveys into Question list (for UI).
-  List<Question> get visibleQuestions {
-    final out = <Question>[];
-    int id = 1;
-    for (final survey in surveys) {
-      for (final e in survey.engagements) {
-        out.add(_engagementToQuestion(e, id++));
-      }
-    }
-    return out;
+  void _applySurvey(Survey data) {
+    survey.value = data;
+    answers.clear();
+    currentQuestionIndex.value = 0;
+    formVersion.value++;
+    _startQuestionTimer();
   }
 
-  int get totalQuestions => visibleQuestions.length;
-
-  bool get isFirstQuestion => currentQuestionIndex.value <= 0;
-
-  bool get isLastQuestion =>
-      totalQuestions > 0 && currentQuestionIndex.value >= totalQuestions - 1;
-
-  Question? get currentQuestion {
-    final list = visibleQuestions;
-    var i = currentQuestionIndex.value;
-    if (list.isEmpty) return null;
-    if (i < 0) i = 0;
-    if (i >= list.length) {
-      currentQuestionIndex.value = list.length - 1;
-      i = list.length - 1;
-    }
-    return list[i];
+  void _startQuestionTimer() {
+    _questionStartedAt = DateTime.now();
   }
 
-  void goToNextQuestion() {
-    final q = currentQuestion;
-    if (q != null) {
-      final err = validateRequired(q);
-      if (err != null) {
-        showSnackbar('Required', err, TColors.error);
-        return;
-      }
-    }
-    if (currentQuestionIndex.value < totalQuestions - 1) {
-      currentQuestionIndex.value++;
-    }
+  void _commitResponseMs(int questionId) {
+    final started = _questionStartedAt;
+    if (started == null) return;
+    final answer = _ensureAnswer(questionId);
+    answer['response_ms'] = DateTime.now().difference(started).inMilliseconds;
+  }
+
+  String _generateLocalId() {
+    final rand = Random().nextInt(0xFFFFFF).toRadixString(16).padLeft(6, '0');
+    return 'offline-${DateTime.now().millisecondsSinceEpoch}-$rand';
+  }
+
+  Map<String, dynamic> _ensureAnswer(int questionId) {
+    return answers.putIfAbsent(
+      questionId,
+      () => <String, dynamic>{
+        'question_id': questionId,
+        'choice_id': null,
+        'selected_choice_ids': <int>[],
+        'text_answer': null,
+        'response_ms': 0,
+        'surveyer': surveyer.value,
+        'local_id': _generateLocalId(),
+        'sync_status': 0,
+        'created_at': DateTime.now().toIso8601String(),
+      },
+    );
   }
 
   void goToPreviousQuestion() {
-    if (currentQuestionIndex.value > 0) {
-      currentQuestionIndex.value--;
+    if (isFirstQuestion) return;
+    final current = currentQuestion;
+    if (current != null) _commitResponseMs(current.id);
+    currentQuestionIndex.value--;
+    _startQuestionTimer();
+  }
+
+  void goToNextQuestion() {
+    final question = currentQuestion;
+    if (question == null) return;
+
+    final error = validateQuestion(question);
+    if (error != null) {
+      showSnackbar('Survey', error, TColors.error);
+      return;
     }
+
+    _commitResponseMs(question.id);
+    if (isLastQuestion) return;
+    currentQuestionIndex.value++;
+    _startQuestionTimer();
   }
 
-  void resetWizard() {
-    currentQuestionIndex.value = 0;
+  void selectSingleChoice(int questionId, int choiceId) {
+    final answer = _ensureAnswer(questionId);
+    answer['choice_id'] = choiceId;
+    answer['selected_choice_ids'] = <int>[];
+    answer['text_answer'] = null;
+    answer['surveyer'] = surveyer.value;
+    _commitResponseMs(questionId);
+    answers.refresh();
   }
 
-  Future<void> submitEngagement() async {
-    final q = currentQuestion;
-    if (q != null) {
-      final err = validateRequired(q);
-      if (err != null) {
-        showSnackbar('Required', err, TColors.error);
-        return;
+  void toggleMultipleChoice(int questionId, int choiceId) {
+    final answer = _ensureAnswer(questionId);
+    final selected = List<int>.from(
+      (answer['selected_choice_ids'] as List?)?.whereType<int>() ?? const [],
+    );
+
+    if (selected.contains(choiceId)) {
+      selected.remove(choiceId);
+    } else {
+      selected.add(choiceId);
+    }
+
+    answer['selected_choice_ids'] = selected;
+    answer['choice_id'] = null;
+    answer['text_answer'] = null;
+    answer['surveyer'] = surveyer.value;
+    _commitResponseMs(questionId);
+    answers.refresh();
+  }
+
+  void setFreeText(int questionId, String value) {
+    final answer = _ensureAnswer(questionId);
+    answer['text_answer'] = value;
+    answer['choice_id'] = null;
+    answer['selected_choice_ids'] = <int>[];
+    answer['surveyer'] = surveyer.value;
+    _commitResponseMs(questionId);
+    answers.refresh();
+  }
+
+  bool isChoiceSelected(Questions question, int choiceId) {
+    final answer = answers[question.id];
+    if (answer == null) return false;
+
+    if (question.answerType == answerTypeSingle) {
+      return answer['choice_id'] == choiceId;
+    }
+    if (question.answerType == answerTypeMultiple) {
+      final selected = answer['selected_choice_ids'];
+      return selected is List && selected.contains(choiceId);
+    }
+    return false;
+  }
+
+  String freeTextValue(int questionId) {
+    final answer = answers[questionId];
+    final text = answer?['text_answer'];
+    return text is String ? text : '';
+  }
+
+  String? validateQuestion(Questions question) {
+    if (!question.isRequired) return null;
+
+    final answer = answers[question.id];
+    switch (question.answerType) {
+      case answerTypeSingle:
+        if (answer?['choice_id'] is! int) return 'Please select an option';
+      case answerTypeMultiple:
+        final selected = answer?['selected_choice_ids'];
+        if (selected is! List || selected.isEmpty) {
+          return 'Please select at least one option';
+        }
+      case answerTypeFreeText:
+        final text = answer?['text_answer'];
+        if (text is! String || text.trim().isEmpty) {
+          return 'Please enter your answer';
+        }
+      default:
+        if (answer == null) return 'Please answer this question';
+    }
+    return null;
+  }
+
+  String? validateAnswers() {
+    if (surveyer.value.trim().isEmpty) {
+      return 'Surveyer is required';
+    }
+    for (final question in questions) {
+      final error = validateQuestion(question);
+      if (error != null) {
+        return '${question.text}: $error';
       }
     }
-    // Log answers before clearing; keys may be int (question id) or String (contact keys)
-    final payload = <String, dynamic>{
-      for (final e in answers.value.entries) e.key.toString(): e.value,
-    };
-    debugPrint('Engagement answers: $payload');
+    return null;
+  }
 
-    // Save response locally for count/history
+  Map<String, dynamic> _baseMeta(
+    Map<String, dynamic>? answer, {
+    required int syncStatus,
+  }) {
+    return {
+      'surveyer': answer?['surveyer'] ?? surveyer.value,
+      'local_id': answer?['local_id'] ?? _generateLocalId(),
+      'sync_status': syncStatus,
+      'created_at':
+          answer?['created_at'] ??
+          answer?['createdAt'] ??
+          DateTime.now().toIso8601String(),
+    };
+  }
+
+  /// API body: array of answer objects.
+  List<Map<String, dynamic>> buildAnswersPayload({int syncStatus = 0}) {
+    return questions.map((question) {
+      final answer = answers[question.id];
+      final responseMs = answer?['response_ms'] ?? 0;
+      final item = <String, dynamic>{
+        'question_id': question.id,
+        'response_ms': responseMs,
+        ..._baseMeta(answer, syncStatus: syncStatus),
+      };
+
+      switch (question.answerType) {
+        case answerTypeSingle:
+          item['choice_id'] = answer?['choice_id'];
+        case answerTypeMultiple:
+          item['selected_choice_ids'] = List<int>.from(
+            (answer?['selected_choice_ids'] as List?)?.whereType<int>() ??
+                const [],
+          );
+        case answerTypeFreeText:
+          item['text_answer'] = answer?['text_answer'];
+        default:
+          if (answer?['choice_id'] != null) {
+            item['choice_id'] = answer?['choice_id'];
+          }
+          final selected = answer?['selected_choice_ids'];
+          if (selected is List && selected.isNotEmpty) {
+            item['selected_choice_ids'] = List<int>.from(
+              selected.whereType<int>(),
+            );
+          }
+          if (answer?['text_answer'] != null) {
+            item['text_answer'] = answer?['text_answer'];
+          }
+      }
+
+      return item;
+    }).toList();
+  }
+
+  Future<void> submit() async {
+    final error = validateAnswers();
+    if (error != null) {
+      showSnackbar('Survey', error, TColors.error);
+      if (surveyer.value.trim().isEmpty) {
+        _showSurveyerDialog(requireValue: true);
+      }
+      return;
+    }
+
+    if (isSubmitting.value) return;
+    isSubmitting.value = true;
+
+    final current = currentQuestion;
+    if (current != null) _commitResponseMs(current.id);
+
+    // Online attempt uses sync_status 0; local pending copy uses 1.
+    final onlinePayload = buildAnswersPayload(syncStatus: 0);
+    final pendingPayload = buildAnswersPayload(syncStatus: 1);
+    final responseLocalId = _generateLocalId();
+
     final saved = await saveEngagementResponseLocally(
       SaveEngagementResponseLocallyParams(
         response: {
-          ...payload,
-          'referral_code': referralCode.value,
-          'survey_id': surveys[0].id,
-          'saved_at': DateTime.now().toIso8601String(),
-          'local_id': 'engmt_${DateTime.now().millisecondsSinceEpoch}',
+          'survey_id': surveyId,
+          'local_id': responseLocalId,
+          'answers': pendingPayload,
+          'sync_status': 1,
           'status': 'pending',
           'uploaded': false,
+          'saved_at': DateTime.now().toIso8601String(),
+          'surveyer': surveyer.value,
         },
       ),
     );
@@ -248,58 +480,47 @@ class EngagementController extends GetxController
       (failure) async {
         showSnackbar('Error', failure.message, TColors.error);
       },
-      (savedSurvey) async {
-        debugPrint('Engagement saved locally: $savedSurvey');
-        refreshResponseStats();
-
-        answers.value = {};
-        _surveyFormVersionRx.value++;
-        resetWizard();
-
-        final localId = savedSurvey['local_id']?.toString() ?? '';
-        final savedAt = savedSurvey['saved_at']?.toString() ?? '';
+      (savedRecord) async {
+        debugPrint('Engagement saved locally: $savedRecord');
+        await refreshResponseStats();
+        _resetForNewResponse();
 
         final result = await submitSurveyUsecase(
-          SubmitSurveyParams(
-            survey: payload,
-            code: referralCode.value,
-            surveyId: surveys[0].id,
-            localId: localId,
-            savedAt: savedAt,
-          ),
+          SubmitSurveyParams(survey: onlinePayload, surveyId: surveyId),
         );
 
         await result.fold(
           (failure) async {
-            await _persistEngagementUploadStatus(
-              localId: localId,
+            await _persistUploadStatus(
+              localId: responseLocalId,
               status: 'failed',
             );
             showSnackbar(
-              'Error',
-              'Failed to upload engagement response to server. It will be retried later.',
+              'Saved offline',
+              'Upload failed. Response kept locally (sync_status=1) for later sync.',
               TColors.info,
             );
           },
           (message) async {
-            await _persistEngagementUploadStatus(
-              localId: localId,
+            await _persistUploadStatus(
+              localId: responseLocalId,
               status: 'success',
             );
             showSnackbar('Survey', message, TColors.success);
-            refreshResponseStats();
           },
         );
+        await refreshResponseStats();
       },
     );
+
+    isSubmitting.value = false;
   }
 
-  Future<void> _persistEngagementUploadStatus({
+  Future<void> _persistUploadStatus({
     required String localId,
     required String status,
   }) async {
     if (localId.isEmpty) return;
-
     final updated = await updateEngagementResponseStatus(
       UpdateEngagementResponseStatusParams(localId: localId, status: status),
     );
@@ -310,112 +531,11 @@ class EngagementController extends GetxController
     );
   }
 
-  static Question _engagementToQuestion(Engagement e, int id) {
-    final isRequired = e.isRequired == '1' || e.isRequired == 'true';
-    final multiline = e.multiline == '1' || e.multiline == 'true';
-    final multiple = e.multiple == '1' || e.multiple == 'true';
-    final other = e.other == '1' || e.other == 'true';
-    int? maxSelections;
-    if (e.maxSelections != null) {
-      if (e.maxSelections is int) {
-        maxSelections = e.maxSelections as int;
-      } else {
-        maxSelections = int.tryParse(e.maxSelections.toString());
-      }
-    }
-    List<Map<String, String>>? fields;
-    if (e.fields is List) {
-      final list = e.fields as List;
-      fields = list
-          .map(
-            (f) => (f is Map
-                ? Map<String, String>.from(
-                    f.map(
-                      (k, v) => MapEntry(k.toString(), v?.toString() ?? ''),
-                    ),
-                  )
-                : <String, String>{}),
-          )
-          .where((m) => m.isNotEmpty)
-          .toList();
-    }
-
-    String type = e.type.toLowerCase();
-    if (type == 'choices') type = 'choice';
-
-    return Question(
-      id: id,
-      question: e.question,
-      type: type,
-      isRequired: isRequired,
-      placeholder: e.placeholder.isEmpty ? null : e.placeholder,
-      multiline: multiline,
-      options: e.options.isEmpty ? null : e.options,
-      multiple: multiple,
-      helpText: e.helpText.isEmpty ? null : e.helpText,
-      maxSelections: maxSelections,
-      layout: e.layout.isEmpty ? null : e.layout,
-      other: other,
-      fields: fields,
-    );
-  }
-
-  @override
-  void setAnswer(Object questionIdOrKey, dynamic value) {
-    final map = Map<Object, dynamic>.from(answers.value);
-    if (value == null ||
-        (value is String && value.isEmpty) ||
-        (value is List && value.isEmpty)) {
-      map.remove(questionIdOrKey);
-    } else {
-      map[questionIdOrKey] = value;
-    }
-    answers.value = map;
-  }
-
-  @override
-  String? getAnswerString(Object questionIdOrKey) {
-    final v = answers.value[questionIdOrKey];
-    if (v == null) return null;
-    return v is String ? v : (v as List).join(', ');
-  }
-
-  @override
-  List<String>? getAnswerList(Object questionId) {
-    final v = answers.value[questionId];
-    if (v == null) return null;
-    if (v is List) return List<String>.from(v.map((e) => e.toString()));
-    return [v.toString()];
-  }
-
-  @override
-  String? validateRequired(Question q) {
-    if (!q.isRequired) return null;
-    if (q.type == 'contact') {
-      final fields = q.fields ?? [];
-      for (final f in fields) {
-        final name = f['name'];
-        if (name != null) {
-          final key = '${q.id}_$name';
-          final v = answers.value[key];
-          if (v == null || (v is String && v.trim().isEmpty)) {
-            return '${f['label']} is required';
-          }
-        }
-      }
-      return null;
-    }
-    final v = answers.value[q.id];
-    final answered =
-        v != null &&
-        (v is String ? v.trim().isNotEmpty : (v as List).isNotEmpty);
-    if (!answered) return 'This question is required';
-    if (q.maxSelections != null && q.options != null) {
-      final list = getAnswerList(q.id);
-      if (list != null && list.length > q.maxSelections!) {
-        return 'Select at most ${q.maxSelections} options';
-      }
-    }
-    return null;
+  /// Clears answers and returns to the first question for another response.
+  void _resetForNewResponse() {
+    answers.clear();
+    currentQuestionIndex.value = 0;
+    formVersion.value++;
+    _startQuestionTimer();
   }
 }

@@ -56,6 +56,7 @@ class DetailModel extends Detail {
     required super.isPlayer,
     required super.position,
     required super.strength,
+    required super.needsSubDetails,
   });
 
   factory DetailModel.fromJson(Map<String, dynamic> json) {
@@ -66,6 +67,9 @@ class DetailModel extends Detail {
       isPlayer: _toBool(json['is_player']),
       position: json['position']?.toString() ?? '',
       strength: _toDouble(json['strength']),
+      needsSubDetails: _toBool(
+        json['needs_sub_details'] ?? json['needs_sub_detail'],
+      ),
     );
   }
 }

@@ -14,3 +14,20 @@ class FetchSurveyUsecase implements UseCase<List<Survey>, NoParams> {
     return await repository.getSurvey();
   }
 }
+
+class FetchSurveyQuestionsUsecase implements UseCase<Survey, SurveyParams> {
+  final SurveyRepository repository;
+
+  FetchSurveyQuestionsUsecase({required this.repository});
+
+  @override
+  Future<Either<Failure, Survey>> call(SurveyParams params) async {
+    return await repository.getSurveyQuestions(params.surveyId);
+  }
+}
+
+class SurveyParams {
+  final String surveyId;
+
+  SurveyParams({required this.surveyId});
+}

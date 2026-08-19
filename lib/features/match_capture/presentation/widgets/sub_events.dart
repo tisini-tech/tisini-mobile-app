@@ -12,11 +12,15 @@ class SubEvents extends StatelessWidget {
     required this.controller,
     required this.isHomeTeam,
     this.onAfterSubmit,
+    this.includeSubDetailPicker = true,
   });
 
   final MatchCaptureController controller;
   final bool isHomeTeam;
   final VoidCallback? onAfterSubmit;
+
+  /// When false, selecting a detail submits immediately (no [MetricSubDetails]).
+  final bool includeSubDetailPicker;
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +41,7 @@ class SubEvents extends StatelessWidget {
           controller.selectSubEvent(detail);
           Navigator.pop(context);
 
-          if (controller.needsSubDetailPicker) {
+          if (includeSubDetailPicker && controller.needsSubDetailPicker) {
             Future.microtask(() {
               Get.bottomSheet(
                 MetricSubDetails(
@@ -50,7 +54,10 @@ class SubEvents extends StatelessWidget {
               );
             });
           } else {
-            controller.submitMetric(isHomeTeam: isHomeTeam);
+            controller.submitMetric(
+              isHomeTeam: isHomeTeam,
+              context: context,
+            );
             onAfterSubmit?.call();
           }
         },
@@ -75,7 +82,8 @@ class MetricSubDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Obx(() {
-      final subDetails = controller.selectedEvent.value?.subDetails ?? const <SubDetail>[];
+      final subDetails =
+          controller.selectedEvent.value?.subDetails ?? const <SubDetail>[];
 
       return _MetricOptionSheet(
         title: 'Select Sub-Detail',
@@ -90,7 +98,10 @@ class MetricSubDetails extends StatelessWidget {
 
           Navigator.pop(context);
           controller.selectSubDetail(subDetail);
-          controller.submitMetric(isHomeTeam: isHomeTeam);
+          controller.submitMetric(
+            isHomeTeam: isHomeTeam,
+            context: context,
+          );
           onAfterSubmit?.call();
         },
       );

@@ -7,6 +7,8 @@ import 'package:tisini/features/match_capture/domain/entities/match_score.dart';
 import 'package:tisini/features/match_capture/domain/entities/match_event.dart';
 import 'package:tisini/features/match_capture/domain/entities/new_player_input.dart';
 import 'package:tisini/features/match_capture/domain/entities/player.dart';
+import 'package:tisini/features/match_capture/domain/entities/agent_arrival.dart';
+import 'package:tisini/features/match_capture/domain/entities/sop.dart';
 
 abstract interface class MatchCaptureRepository {
   Future<Either<Failure, List<Metric>>> getMatchMetrics({
@@ -35,6 +37,8 @@ abstract interface class MatchCaptureRepository {
     required Map<String, dynamic> matchEvent,
   });
 
+  Future<Either<Failure, String>> uploadImage({required String path});
+
   Future<Either<Failure, String>> deleteMatchEvent({
     required String fixtureId,
     required String eventId,
@@ -56,6 +60,28 @@ abstract interface class MatchCaptureRepository {
 
   Future<Either<Failure, MatchScore>> getMatchScore({
     required String fixtureId,
+  });
+
+  Future<Either<Failure, Sop>> getSop({required String fixtureId});
+
+  Future<Either<Failure, Sop>> createSop({
+    required String fixtureId,
+    required Sop sop,
+  });
+
+  Future<Either<Failure, Sop>> updateSop({
+    required String fixtureId,
+    required String sopId,
+    required Sop sop,
+  });
+
+  Future<Either<Failure, AgentArrival>> getAgentArrival({
+    required String fixtureId,
+  });
+
+  Future<Either<Failure, AgentArrival>> createAgentArrival({
+    required String fixtureId,
+    required AgentArrival arrival,
   });
 
   Future<Either<Failure, List<Lineup>>> getTeamLineup({

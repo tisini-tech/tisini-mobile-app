@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+import 'package:tisini/core/error/exceptions.dart';
 import 'package:tisini/core/services/http_response_body.dart';
 import 'package:tisini/core/services/http_service.dart';
 import 'package:tisini/features/match_capture/data/models/event_category_model.dart';
@@ -6,6 +8,8 @@ import 'package:tisini/features/match_capture/data/models/match_score_model.dart
 import 'package:tisini/features/match_capture/data/models/match_event_model.dart';
 import 'package:tisini/features/match_capture/data/models/lineup_model.dart';
 import 'package:tisini/features/match_capture/data/models/player_model.dart';
+import 'package:tisini/features/match_capture/data/models/agent_arrival_model.dart';
+import 'package:tisini/features/match_capture/data/models/sop_model.dart';
 
 abstract interface class MatchCaptureRemoteSource {
   Future<List<MetricModel>> getMatchMetrics({required String fixtureType});
@@ -80,6 +84,28 @@ abstract interface class MatchCaptureRemoteSource {
     required String fixtureId,
     required List<Map<String, int>> players,
   });
+
+  Future<SopModel> getSop({required String fixtureId});
+
+  Future<SopModel> createSop({
+    required String fixtureId,
+    required Map<String, dynamic> sop,
+  });
+
+  Future<SopModel> updateSop({
+    required String fixtureId,
+    required String sopId,
+    required Map<String, dynamic> sop,
+  });
+
+  Future<AgentArrivalModel> getAgentArrival({required String fixtureId});
+
+  Future<AgentArrivalModel> createAgentArrival({
+    required String fixtureId,
+    required Map<String, dynamic> arrival,
+  });
+
+  Future<String> uploadImage({required String path});
 }
 
 class MatchCaptureRemoteSourceImpl implements MatchCaptureRemoteSource {
@@ -160,6 +186,112 @@ class MatchCaptureRemoteSourceImpl implements MatchCaptureRemoteSource {
     final data = HttpResponseBody.requireMap(response);
 
     return data['message']?.toString() ?? 'Failed to create event!';
+  }
+
+  @override
+  Future<String> uploadImage({required String path}) async {
+    final filename = path.split('/').last;
+    final formData = FormData.fromMap({
+      'file': await MultipartFile.fromFile(path, filename: filename),
+    });
+
+    final response = await _httpService.post('/uploads', formData);
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.requireMap(response);
+    final url = data['url']?.toString().trim() ?? '';
+    if (url.isEmpty) {
+      throw ServerException(message: 'Failed to upload image!');
+    }
+    return url;
+  }
+
+  @override
+  Future<SopModel> getSop({required String fixtureId}) async {
+    final response = await _httpService.get('/fixtures/$fixtureId/sops');
+
+    if (response.statusCode == 404) {
+      return const SopModel();
+    }
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.asMap(response.data);
+    if (data == null || data.isEmpty) {
+      return const SopModel();
+    }
+    return SopModel.fromJson(data);
+  }
+
+  @override
+  Future<SopModel> createSop({
+    required String fixtureId,
+    required Map<String, dynamic> sop,
+  }) async {
+    final response = await _httpService.post(
+      '/fixtures/$fixtureId/sops',
+      sop,
+    );
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.asMap(response.data);
+    if (data != null &&
+        (data.containsKey('id') || data.containsKey('home_lineup_img'))) {
+      return SopModel.fromJson(data);
+    }
+    return SopModel.fromJson(sop);
+  }
+
+  @override
+  Future<SopModel> updateSop({
+    required String fixtureId,
+    required String sopId,
+    required Map<String, dynamic> sop,
+  }) async {
+    final response = await _httpService.patch(
+      '/fixtures/$fixtureId/sops/$sopId',
+      sop,
+    );
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.asMap(response.data);
+    if (data != null &&
+        (data.containsKey('id') || data.containsKey('home_lineup_img'))) {
+      return SopModel.fromJson(data);
+    }
+    return SopModel.fromJson({...sop, 'id': int.tryParse(sopId) ?? 0});
+  }
+
+  @override
+  Future<AgentArrivalModel> getAgentArrival({required String fixtureId}) async {
+    final response = await _httpService.get(
+      '/fixtures/$fixtureId/agent-arrival',
+    );
+
+    if (response.statusCode == 404) {
+      return const AgentArrivalModel();
+    }
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.asMap(response.data);
+    if (data == null || data.isEmpty || (data['id'] == null && data['arrival_img'] == null)) {
+      return const AgentArrivalModel();
+    }
+    return AgentArrivalModel.fromJson(data);
+  }
+
+  @override
+  Future<AgentArrivalModel> createAgentArrival({
+    required String fixtureId,
+    required Map<String, dynamic> arrival,
+  }) async {
+    final response = await _httpService.post(
+      '/fixtures/$fixtureId/agent-arrivals',
+      arrival,
+    );
+
+    HttpResponseBody.throwIfHttpError(response);
+    final data = HttpResponseBody.requireMap(response);
+    return AgentArrivalModel.fromJson(data);
   }
 
   @override

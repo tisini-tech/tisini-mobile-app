@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:tisini/core/constants/colors.dart';
 
-/// Returns the entered referral code (trimmed) when user taps Save, or null when skipped.
+/// Returns the entered value (trimmed) when user taps Save, or null when skipped.
 class ReferralCodeDialog extends StatefulWidget {
   const ReferralCodeDialog({
     super.key,
     required this.initialValue,
+    this.title = 'Referral Code',
+    this.hintText = 'Enter your referral code',
+    this.showSkip = true,
   });
 
   final String initialValue;
+  final String title;
+  final String hintText;
+  final bool showSkip;
 
   @override
   State<ReferralCodeDialog> createState() => _ReferralCodeDialogState();
@@ -33,12 +39,12 @@ class _ReferralCodeDialogState extends State<ReferralCodeDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Referral Code'),
+      title: Text(widget.title),
       content: TextField(
         controller: _controller,
-        decoration: const InputDecoration(
-          hintText: 'Enter your referral code',
-          border: OutlineInputBorder(),
+        decoration: InputDecoration(
+          hintText: widget.hintText,
+          border: const OutlineInputBorder(),
           filled: true,
           fillColor: TColors.lightContainer,
         ),
@@ -47,10 +53,11 @@ class _ReferralCodeDialogState extends State<ReferralCodeDialog> {
         onSubmitted: (_) => _save(),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Get.back(result: null),
-          child: const Text('Skip'),
-        ),
+        if (widget.showSkip)
+          TextButton(
+            onPressed: () => Get.back(result: null),
+            child: const Text('Skip'),
+          ),
         FilledButton(
           onPressed: _save,
           style: FilledButton.styleFrom(
@@ -64,6 +71,8 @@ class _ReferralCodeDialogState extends State<ReferralCodeDialog> {
   }
 
   void _save() {
-    Get.back(result: _controller.text.trim());
+    final value = _controller.text.trim();
+    if (value.isEmpty) return;
+    Get.back(result: value);
   }
 }

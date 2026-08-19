@@ -6,11 +6,9 @@ import 'package:tisini/core/constants/formations.dart';
 import 'package:tisini/core/widgets/snackbar/snackbar.dart';
 import 'package:tisini/features/fixtures/domain/entities/agent_fixture.dart';
 import 'package:tisini/features/match_capture/domain/entities/formation.dart';
-import 'package:tisini/features/match_capture/domain/usecases/match_events.dart';
 import 'package:tisini/features/match_capture/domain/usecases/start_end_match.dart';
-import 'package:tisini/features/match_capture/presentation/controllers/audit_events_controller.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
-import 'package:tisini/features/match_capture/presentation/pages/audit_events_screen.dart';
+import 'package:tisini/features/match_capture/presentation/widgets/match_recording_guard.dart';
 import 'package:tisini/shared/fixture_data/domain/entities/match_data.dart';
 import 'package:tisini/features/match_capture/domain/entities/match_score.dart';
 
@@ -22,8 +20,11 @@ class TimerController extends GetxController {
   AgentFixture get fixture => matchCaptureController.fixture.value!;
   List<MatchData>? get matchData => matchCaptureController.fixtureData.value;
   MatchScore? get matchScore => matchCaptureController.matchScore.value;
-  void submitOwnGoal({required bool isHomeTeam}) =>
-      matchCaptureController.submitOwnGoal(isHomeTeam: isHomeTeam);
+  void submitOwnGoal({required bool isHomeTeam, BuildContext? context}) =>
+      matchCaptureController.submitOwnGoal(
+        isHomeTeam: isHomeTeam,
+        context: context,
+      );
 
   final StartMatchUsecase startMatchUsecase;
   final EndHalfUsecase endHalfUsecase;
@@ -99,6 +100,14 @@ class TimerController extends GetxController {
       fixture.gameStatus == 'started' ||
       fixture.gameStatus == 'HT' ||
       fixture.gameStatus == 'FT';
+
+  MatchRecordingBlock get recordingBlock => resolveRecordingBlock(
+    gameStatus: fixture.gameStatus,
+    isRunning: isRunning.value,
+    isSecondHalf: isSecondHalf.value,
+  );
+
+  bool get canRecordEvents => recordingBlock == MatchRecordingBlock.none;
 
   @override
   void onInit() {

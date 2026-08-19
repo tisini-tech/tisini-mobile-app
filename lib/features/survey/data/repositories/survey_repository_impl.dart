@@ -19,6 +19,8 @@ class SurveyRepositoryImpl implements SurveyRepository {
     'status',
     'uploaded',
     'uploaded_at',
+    'sync_status',
+    'answers',
   };
 
   final SurveyLocalDataSource localDataSource;
@@ -86,15 +88,10 @@ class SurveyRepositoryImpl implements SurveyRepository {
   }
 
   @override
-  Future<Either<Failure, String>> uploadPendingSurveys(
-    List<Map<String, dynamic>> payloads,
-  ) async {
+  Future<Either<Failure, List<Survey>>> getSurvey() async {
     try {
-      final result = await remoteDataSource.uploadPendingSurveys(payloads);
-      if (result.surveyIds.isNotEmpty) {
-        await localDataSource.markAsSynced(result.surveyIds);
-      }
-      return Right(result.message);
+      final list = await remoteDataSource.getSurvey();
+      return Right(list);
     } on ServerException catch (e) {
       return Left(Failure(e.message));
     } catch (e) {
@@ -103,10 +100,10 @@ class SurveyRepositoryImpl implements SurveyRepository {
   }
 
   @override
-  Future<Either<Failure, List<Survey>>> getSurvey() async {
+  Future<Either<Failure, Survey>> getSurveyQuestions(String surveyId) async {
     try {
-      final list = await remoteDataSource.getSurvey();
-      return Right(list);
+      final survey = await remoteDataSource.getSurveyQuestions(surveyId);
+      return Right(survey);
     } on ServerException catch (e) {
       return Left(Failure(e.message));
     } catch (e) {
@@ -138,21 +135,35 @@ class SurveyRepositoryImpl implements SurveyRepository {
   }
 
   @override
+  Future<Either<Failure, void>> upsertCachedSurvey(Survey survey) async {
+    try {
+      final model = survey is SurveyModel
+          ? survey
+          : SurveyModel.fromEntity(survey);
+      await localDataSource.upsertCachedSurvey(model);
+      return const Right(null);
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
+  Future<Either<Failure, Survey?>> getCachedSurveyById(String surveyId) async {
+    try {
+      final survey = await localDataSource.getCachedSurveyById(surveyId);
+      return Right(survey);
+    } catch (e) {
+      return Left(Failure(e.toString()));
+    }
+  }
+
+  @override
   Future<Either<Failure, String>> saveSurvey(
-    Map<String, dynamic> survey,
-    String code,
+    List<Map<String, dynamic>> survey,
     String surveyId,
-    String localId,
-    String savedAt,
   ) async {
     try {
-      final result = await remoteDataSource.saveSurvey(
-        survey,
-        code,
-        surveyId,
-        localId,
-        savedAt,
-      );
+      final result = await remoteDataSource.saveSurvey(survey, surveyId);
 
       return Right(result);
     } on ServerException catch (e) {
@@ -215,8 +226,7 @@ class SurveyRepositoryImpl implements SurveyRepository {
   @override
   Future<Either<Failure, String>> syncPendingEngagementResponses() async {
     try {
-      final pending =
-          await localDataSource.getEngagementResponsesPendingSync();
+      final pending = await localDataSource.getEngagementResponsesPendingSync();
       if (pending.isEmpty) {
         return const Right('No responses to sync');
       }
@@ -226,23 +236,25 @@ class SurveyRepositoryImpl implements SurveyRepository {
         final localId = record['local_id']?.toString() ?? '';
         if (localId.isEmpty) continue;
 
-        final survey = _extractSurveyAnswers(record);
         final surveyId = record['survey_id']?.toString() ?? '';
-        final referral = record['referral_code']?.toString() ?? '';
-        final savedAt = record['saved_at']?.toString() ?? '';
+        if (surveyId.isEmpty) continue;
 
-        await remoteDataSource.saveSurvey(
-          survey,
-          referral,
-          surveyId,
-          localId,
-          savedAt,
-        );
-        await localDataSource.updateEngagementResponseStatus(
-          localId: localId,
-          status: 'success',
-        );
-        synced++;
+        final answers = _extractSurveyAnswers(record);
+        if (answers.isEmpty) continue;
+
+        try {
+          await remoteDataSource.saveSurvey(answers, surveyId);
+          await localDataSource.updateEngagementResponseStatus(
+            localId: localId,
+            status: 'success',
+          );
+          synced++;
+        } catch (_) {
+          await localDataSource.updateEngagementResponseStatus(
+            localId: localId,
+            status: 'failed',
+          );
+        }
       }
 
       if (synced == 0) {
@@ -256,13 +268,24 @@ class SurveyRepositoryImpl implements SurveyRepository {
     }
   }
 
-  static Map<String, dynamic> _extractSurveyAnswers(
+  static List<Map<String, dynamic>> _extractSurveyAnswers(
     Map<String, dynamic> record,
   ) {
-    return {
-      for (final entry in record.entries)
-        if (!_engagementMetadataKeys.contains(entry.key))
-          entry.key: entry.value,
-    };
+    final answers = record['answers'];
+    if (answers is List) {
+      return [
+        for (final item in answers)
+          if (item is Map) Map<String, dynamic>.from(item),
+      ];
+    }
+
+    // Legacy flat map stored as a single list item.
+    return [
+      {
+        for (final entry in record.entries)
+          if (!_engagementMetadataKeys.contains(entry.key))
+            entry.key: entry.value,
+      },
+    ];
   }
 }

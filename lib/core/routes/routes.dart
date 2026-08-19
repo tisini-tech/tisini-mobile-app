@@ -1,4 +1,5 @@
 import 'package:get/get.dart';
+import 'package:tisini/core/app_update/force_update_screen.dart';
 import 'package:tisini/core/navigation/bindings/navigation_binding.dart';
 import 'package:tisini/core/navigation/main_navigation.dart';
 import 'package:tisini/core/navigation/public_navigation.dart';
@@ -17,24 +18,29 @@ import 'package:tisini/features/fixtures/presentation/controllers/league_fixture
 import 'package:tisini/features/fixtures/presentation/pages/fixture_details_screen.dart';
 import 'package:tisini/features/fixtures/presentation/bindings/fixture_details_binding.dart';
 import 'package:tisini/features/match_capture/presentation/bindings/audit_binding.dart';
-import 'package:tisini/features/match_capture/presentation/bindings/feedback_binding.dart';
+import 'package:tisini/features/match_capture/presentation/bindings/agent_arrival_binding.dart';
+import 'package:tisini/features/match_capture/presentation/bindings/sop_binding.dart';
 import 'package:tisini/features/match_capture/presentation/bindings/lineup_binding.dart';
 import 'package:tisini/features/match_capture/presentation/bindings/officials_binding.dart';
 import 'package:tisini/features/fixtures/presentation/pages/agent_fixtures_screen.dart';
 import 'package:tisini/features/fixtures/presentation/pages/fixture_options_screen.dart';
 import 'package:tisini/features/match_capture/presentation/pages/audit_events_screen.dart';
-import 'package:tisini/features/match_capture/presentation/pages/feedback_screen.dart';
+import 'package:tisini/features/match_capture/presentation/pages/agent_arrival_screen.dart';
+import 'package:tisini/features/match_capture/presentation/pages/sop_screen.dart';
 import 'package:tisini/features/match_capture/presentation/pages/officials_screen.dart';
 import 'package:tisini/features/match_capture/presentation/pages/select_lineups_screen.dart';
 import 'package:tisini/features/match_capture/presentation/bindings/match_capture_binding.dart';
 import 'package:tisini/features/match_capture/presentation/pages/match_capture_screen.dart';
 import 'package:tisini/features/survey/presentation/bindings/engagement_binding.dart';
+import 'package:tisini/features/survey/presentation/bindings/engagements_binding.dart';
 import 'package:tisini/features/survey/presentation/pages/engagement_screen.dart';
+import 'package:tisini/features/survey/presentation/pages/engagements_screen.dart';
 
 class AppPages {
   static final route = [
     // Splash screen
     GetPage(name: "/splash", page: () => const SplashScreen()),
+    GetPage(name: "/force-update", page: () => const ForceUpdateScreen()),
 
     // Auth routes
     GetPage(
@@ -73,7 +79,6 @@ class AppPages {
         LiveFixturesBinding().dependencies();
         Get.lazyPut(() => LeagueFixtureController());
         BlogBinding().dependencies();
-        EngagementBinding().dependencies();
       }),
     ),
 
@@ -85,6 +90,11 @@ class AppPages {
     ),
     GetPage(
       name: "/survey",
+      page: () => const EngagementsScreen(),
+      binding: EngagementsBinding(),
+    ),
+    GetPage(
+      name: "/engagement",
       page: () => const EngagementScreen(),
       binding: EngagementBinding(),
     ),
@@ -130,12 +140,17 @@ class AppPages {
     GetPage(
       name: "/lineup-selector",
       page: () => SelectLineupsScreen(),
-      binding: LineupBinding(),
+      bindings: [LineupBinding(), MatchCaptureBinding()],
     ),
     GetPage(
-      name: "/feedback",
-      page: () => const FeedbackScreen(),
-      binding: FeedbackBinding(),
+      name: "/pitch-arrival",
+      page: () => const AgentArrivalScreen(),
+      binding: AgentArrivalBinding(),
+    ),
+    GetPage(
+      name: "/sop",
+      page: () => const SopScreen(),
+      binding: SopBinding(),
     ),
     GetPage(
       name: "/match-officials",

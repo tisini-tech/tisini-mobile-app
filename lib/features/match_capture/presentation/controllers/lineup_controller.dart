@@ -53,7 +53,7 @@ class LineupController extends GetxController {
   final lastNameController = TextEditingController();
   final sirNameController = TextEditingController();
   final dobController = TextEditingController();
-  final positionController = TextEditingController();
+  final RxnString selectedPosition = RxnString();
   final phoneController = TextEditingController();
   final idnoController = TextEditingController();
   final jerseyController = TextEditingController();
@@ -108,7 +108,6 @@ class LineupController extends GetxController {
     lastNameController.dispose();
     sirNameController.dispose();
     dobController.dispose();
-    positionController.dispose();
     phoneController.dispose();
     idnoController.dispose();
     jerseyController.dispose();
@@ -127,7 +126,7 @@ class LineupController extends GetxController {
     lastNameController.clear();
     sirNameController.clear();
     dobController.clear();
-    positionController.clear();
+    selectedPosition.value = null;
     phoneController.clear();
     idnoController.clear();
     jerseyController.clear();
@@ -451,7 +450,7 @@ class LineupController extends GetxController {
       lastName: lastNameController.text.trim(),
       sirName: sirNameController.text.trim(),
       dob: dobController.text.trim(),
-      position: positionController.text.trim(),
+      position: selectedPosition.value?.trim() ?? '',
       countrycode: countryCode.value,
       jersey: jerseyController.text.trim(),
       contract: contractController.text.trim(),

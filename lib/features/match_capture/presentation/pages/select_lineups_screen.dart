@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import 'package:tisini/core/constants/colors.dart';
 import 'package:tisini/features/match_capture/domain/entities/player.dart';
 import 'package:tisini/features/match_capture/presentation/controllers/lineup_controller.dart';
+import 'package:tisini/features/match_capture/presentation/controllers/match_capture_controller.dart';
 import 'package:tisini/features/match_capture/presentation/widgets/saved_lineup_preview.dart';
 
 class SelectLineupsScreen extends GetView<LineupController> {
@@ -33,6 +34,30 @@ class SelectLineupsScreen extends GetView<LineupController> {
           return SavedLineupPreview(
             lineup: controller.lineup,
             onUpdatePlayer: controller.updateSavedPlayer,
+            fixtureType: controller.fixture.value?.fixtureType,
+            onBehaviour: (player) {
+              MatchCaptureController? mc;
+              try {
+                mc = Get.find<MatchCaptureController>();
+              } catch (_) {
+                mc = null;
+              }
+              if (mc == null) {
+                Get.snackbar(
+                  'Not available',
+                  'Open the match capture screen first.',
+                  snackPosition: SnackPosition.TOP,
+                  duration: const Duration(seconds: 3),
+                );
+                return;
+              }
+              mc.openBehaviourForm(
+                context: context,
+                isHomeTeam: mc.isHomeTeam,
+                player: player,
+                bypassGuard: true,
+              );
+            },
           );
         }
 
